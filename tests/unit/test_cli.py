@@ -58,9 +58,9 @@ def test_version_exits_zero(capsys) -> None:
     assert "nps 0.1.0" in capsys.readouterr().out
 
 
-def test_missing_interface_returns_usage_error(capsys) -> None:
-    assert main([]) == 2
-    assert "list-interfaces" in capsys.readouterr().err
+def test_cli_mode_requires_target(capsys) -> None:
+    assert main(["--cli"]) == 2
+    assert "--cli" in capsys.readouterr().err
 
 
 def test_negative_count_rejected(capsys) -> None:

@@ -70,7 +70,7 @@
 - GUI：PySide6（LGPLv3，与本项目 MIT 许可证兼容性最好；全项目统一，不再提供 PyQt6 分支）
 - 捕获：**ctypes 直连** libpcap（Linux/macOS）/ wpcap.dll（Windows Npcap）
 - 解析辅助：标准库 `struct`、`socket`、`ipaddress`、`dataclasses`
-- 测试：`pytest`、`pytest-qt`、`pytest-cov`
+- 测试：`pytest`、`pytest-cov`；GUI 用 `PySide6.QtTest` + `offscreen` 平台（不额外引入 pytest-qt）
 - 静态检查：`ruff`（必选）、`mypy`（可选，仅 core/decode 目录）
 - CI：GitHub Actions（Ubuntu + Windows 双平台）
 - 打包：`pyproject.toml` + `scripts/package.py`
@@ -478,16 +478,16 @@ nps/
 
 **任务**
 
-- [ ] `pyproject.toml`、`requirements.txt`、`ruff`、`pytest`、`Makefile` 就位；
-- [ ] `LICENSE`（MIT）、`SECURITY.md`、`CONTRIBUTING.md`、`.github/workflows/ci.yml` 就位；
-- [ ] `scripts/probe_pcap.py`：加载库、打印 `pcap_lib_version`、枚举设备、读一个包后退出（**这一天必须跑通，否则后续全盘阻塞**）；
-- [ ] `CaptureBackend` 协议（`open/start/stop/close/stats`）+ `FakeBackend`；
-- [ ] 设备枚举：名称、描述、是否回环、是否支持混杂模式；
-- [ ] 新 API 调用序列 + 参数配置 + 错误信息透传（`pcap_geterr`）；
-- [ ] BPF 编译与设置，编译错误原文展示；
-- [ ] `pcap_stats` 读取与解析；
-- [ ] 停止机制（timeout + dispatch 轮询 + breakloop）；
-- [ ] 命令行模式打印摘要，验证过滤与混杂模式生效。
+- [x] `pyproject.toml`、`requirements.txt`、`ruff`、`pytest`、`Makefile` 就位；
+- [x] `LICENSE`（MIT）、`SECURITY.md`、`CONTRIBUTING.md`、`.github/workflows/ci.yml` 就位；
+- [x] `scripts/probe_pcap.py`：加载库、打印 `pcap_lib_version`、枚举设备、读一个包后退出（**这一天必须跑通，否则后续全盘阻塞**）；
+- [x] `CaptureBackend` 协议（`open/start/stop/close/stats`）+ `FakeBackend`；
+- [x] 设备枚举：名称、描述、是否回环、是否支持混杂模式；
+- [x] 新 API 调用序列 + 参数配置 + 错误信息透传（`pcap_geterr`）；
+- [x] BPF 编译与设置，编译错误原文展示；
+- [x] `pcap_stats` 读取与解析；
+- [x] 停止机制（timeout + dispatch 轮询 + breakloop）；
+- [x] 命令行模式打印摘要，验证过滤与混杂模式生效。
 
 **验收（量化）**
 
@@ -501,18 +501,19 @@ nps/
 
 **任务**
 
-- [ ] 三窗格 `QSplitter` 布局：包列表 / 详情树 / 十六进制；
-- [ ] 包列表 `QAbstractTableModel`：序号、时间、源、目的、协议、长度、摘要；
-- [ ] 开始/暂停/停止、接口选择、BPF 输入、清空、自动滚动；
-- [ ] `QTimer` 批量消费（16 ms / 300 条）；
-- [ ] 解析：Ethernet、802.1Q、ARP、IPv4、IPv6、TCP、UDP、ICMP（v4/v6）；
-- [ ] 详情树按层展开，十六进制视图选中包联动、选中字节高亮；
-- [ ] 环形缓冲容量上限与丢弃提示；
-- [ ] 实时落盘（`pcap_dump`）与"另存为 PCAP"；
-- [ ] 离线 PCAP 读取（供测试与回放，GUI 打开入口可后置）；
-- [ ] `docs/CONCEPTS.md`：OSI 分层与抓包点（AF_PACKET 在 netfilter 之前）、链路层/网络层/应用层可见范围、TLS 加密边界；
-- [ ] `docs/DEVELOPMENT.md`：环境搭建、Windows/Linux 权限差异、常见故障（抓不到包 / `ps_drop` 高 / 回环无流量）；
-- [ ] `docs/ARCHITECTURE.md` 初稿：分层职责、数据流（回调 → 队列 → 解析 → 模型）、线程边界。
+- [x] 三窗格 `QSplitter` 布局：包列表 / 详情树 / 十六进制；
+- [x] 包列表 `QAbstractTableModel`：序号、时间、源、目的、协议、长度、摘要；
+- [x] 开始/暂停/停止、接口选择、BPF 输入、清空、自动滚动；
+- [x] `QTimer` 批量消费（16 ms / 300 条）；
+- [x] 解析：Ethernet、802.1Q、ARP、IPv4、IPv6、TCP、UDP、ICMP（v4/v6）；
+- [x] 详情树按层展开，十六进制视图选中包联动、选中字节高亮；
+- [x] 环形缓冲容量上限与丢弃提示（20 万包，超限淘汰最旧并计数）；
+- [x] "另存为 PCAP"（含敏感数据确认；导出后可被 libpcap 读回）；
+- [ ] 实时落盘（`pcap_dump` 流式写入）—— 顺延至 P3，当前采用"停止后导出"；
+- [x] 离线 PCAP 读取（供测试与回放，GUI 打开入口可后置）；
+- [x] `docs/CONCEPTS.md`：OSI 分层与抓包点（AF_PACKET 在 netfilter 之前）、链路层/网络层/应用层可见范围、TLS 加密边界；
+- [x] `docs/DEVELOPMENT.md`：环境搭建、Windows/Linux 权限差异、常见故障（抓不到包 / `ps_drop` 高 / 回环无流量）；
+- [x] `docs/ARCHITECTURE.md` 初稿：分层职责、数据流（回调 → 队列 → 解析 → 模型）、线程边界。
 
 **验收（量化）**
 
@@ -521,6 +522,10 @@ nps/
 - 暂停语义明确：**停止刷新但仍抓包**（UI 显示"暂停刷新中，仍在捕获 N 包"）；
 - 十六进制视图字节偏移与详情树字段偏移一致（抽样 20 个包人工核对）；
 - 导出 PCAP 可被 Wireshark 打开且包数与列表一致。
+
+**实测（2026-11-10，Windows 10 + Npcap 1.90）**：回环 UDP 5,000 pps 持续 10 s，表内 49,875 包，
+队列丢弃 0，UI 帧间隔 中位 15.8 ms / p95 21.8 ms / **max 49.1 ms**（预算 500 ms），内存 59 → 120 MB；
+全量测试 89 项通过（含 6 条 GUI 联动与 1 条界面端到端抓包）。
 
 ### 5.3 P2：显示过滤（11/17，必须项）
 
@@ -644,7 +649,7 @@ GUI 相关 PR 必须附截图；捕获层 PR 必须贴 `probe_pcap.py` 输出。
 | 单元测试 | 过滤器（词法/语法/求值）、五元组规范化、会话老化、DPI 匹配、PCAP 读写边界 | 整体覆盖率 ≥ 60%，`filters/` 与 `core/session.py` ≥ 80% |
 | 集成测试 | `FakeBackend` → 队列 → 解析 → 模型 全链路；离线 PCAP 回放 | 无外部依赖，CI 必跑 |
 | 真实设备测试 | 回环 + 物理网卡抓包、BPF 生效、混杂模式 | `requires_npcap` 标记，本地执行并留档 |
-| GUI 冒烟 | 主窗口启动、行数增长、过滤错误提示、十六进制联动 | `pytest-qt`，CI 用 `offscreen` 平台 |
+| GUI 冒烟 | 三窗格结构、选中联动、字段字节高亮、清空、真实抓包入表 | `PySide6.QtTest` + `offscreen`；未安装 PySide6 时整组跳过 |
 | 性能基线 | 1k / 10k / 100k 包 | 结果写入 `docs/PERF.md`，与阈值对比 |
 
 **测试数据原则**：只用 `scripts/make_fixtures.py` 生成的合成 PCAP 或明确授权的流量，**不得提交真实抓包**。
