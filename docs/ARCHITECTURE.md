@@ -3,16 +3,33 @@
 ## 分层
 
 ```text
-GUI (P1+)                 PySide6：三窗格、会话视图、流时序图
+GUI                       PySide6：三窗格、会话视图、流时序图（P3+）
    │  只读模型 / 只发命令
+解析层                    decode：Ethernet/ARP/IPv4/IPv6/TCP/UDP/ICMP → 字段树
+   │
 会话与识别层 (P3+)        五元组规范化、会话表、DPI、显示过滤求值
    │
-核心层                    Packet 模型、有界队列、统计
+核心层                    Packet 模型、定容存储、有界队列、统计
    │
 捕获层                    ctypes → libpcap/Npcap 新 API
 ```
 
-调用方向严格单向：上层依赖下层，下层不认识上层。捕获层不得 import GUI 或 Qt。
+调用方向严格单向：上层依赖下层，下层不认识上层。捕获层与解析层不得 import GUI 或 Qt。
+
+## 界面数据流
+
+```text
+捕获线程 ──put──▶ BoundedPacketQueue ──QTimer(16ms, ≤300 条)──▶ PacketTableModel
+                                                                    │
+                                     选中行 ──▶ decode_packet（惰性、缓存）│
+                                                    ├──▶ DetailTree（字段树 + 偏移）
+                                                    └──▶ HexView（原始字节 + 高亮）
+```
+
+- **惰性解析**：`data()` 只对可见行触发解析，结果按包序号缓存；20 万包不会在插入时全量解析。
+- **容量淘汰**：模型在插入前用 `overflow_for()` 预判需要移除的行数，先 `beginRemoveRows`
+  再丢弃，保证 Qt 的行号始终与存储一致。
+- **字段高亮**：详情树节点存 `(offset, length)` 绝对偏移，HexView 直接按偏移绘制高亮块。
 
 ## 线程模型
 
