@@ -40,4 +40,12 @@ def decode(
         layer.add("UDP payload", f"{body} bytes", offset + 8, body)
     layers.append(layer)
 
+    decoded.put(
+        **{
+            "udp.srcport": src_port,
+            "udp.dstport": dst_port,
+            "udp.len": length,
+        }
+    )
+
     decoded.summary = f"{src_port} → {dst_port} Len={body}"

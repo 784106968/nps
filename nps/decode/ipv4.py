@@ -70,6 +70,16 @@ def decode(raw: bytes, offset: int, layers: list[Field], decoded: Decoded) -> No
     decoded.src = src
     decoded.dst = dst
     decoded.protocol = PROTOCOL_NAMES.get(proto, f"IPv4/{proto}")
+    decoded.put(
+        **{
+            "ip.version": 4,
+            "ip.src": src,
+            "ip.dst": dst,
+            "ip.proto": proto,
+            "ip.len": total_len,
+            "ip.ttl": ttl,
+        }
+    )
 
     payload_offset = offset + ihl
     payload_len = max(0, (total_len or len(raw) - offset) - ihl)

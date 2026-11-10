@@ -53,6 +53,16 @@ def decode(raw: bytes, offset: int, layers: list[Field], decoded: Decoded) -> No
     decoded.src = src
     decoded.dst = dst
     decoded.protocol = NEXT_HEADER_NAMES.get(next_header, f"IPv6/{next_header}")
+    decoded.put(
+        **{
+            "ip.version": 6,
+            "ip.src": src,
+            "ip.dst": dst,
+            "ip.proto": next_header,
+            "ip.len": payload_len + 40,
+            "ip.ttl": hop_limit,
+        }
+    )
 
     payload_offset = offset + 40
     payload = min(payload_len, max(0, len(raw) - payload_offset))
