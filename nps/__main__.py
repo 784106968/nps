@@ -189,6 +189,8 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--queue-size", type=int, default=100_000, help="用户态队列容量")
     parser.add_argument("--no-promisc", action="store_true", help="不开启混杂模式")
     parser.add_argument("-v", "--verbose", action="store_true", help="附加前若干字节的十六进制")
+    parser.add_argument("--cli", action="store_true", help="强制命令行模式（需要 -i 或 --offline）")
+    parser.add_argument("--gui", action="store_true", help="启动图形界面（默认行为）")
     return parser
 
 
@@ -210,8 +212,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.offline and args.interface:
         print("错误：--offline 与 -i 不能同时使用。", file=sys.stderr)
         return 2
-    if not args.interface and not args.offline:
-        print("错误：请用 -i 指定网卡，或先运行 --list-interfaces。", file=sys.stderr)
+    if args.cli and not (args.interface or args.offline):
+        print("错误：--cli 模式需要 -i 或 --offline。", file=sys.stderr)
         return 2
     if args.count < 0:
         print("错误：--count 不能为负数。", file=sys.stderr)
@@ -220,7 +222,13 @@ def main(argv: list[str] | None = None) -> int:
         print("错误：--duration 不能为负数。", file=sys.stderr)
         return 2
 
-    return run_capture(args)
+    if args.interface or args.offline:
+        return run_capture(args)
+
+    # 无参数（或 --gui）：启动图形界面
+    from nps.gui import run_gui
+
+    return run_gui()
 
 
 if __name__ == "__main__":
