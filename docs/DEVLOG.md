@@ -67,6 +67,17 @@
 
 提前于计划（原定 11/13–11/16），当日完成红线交付内容。
 
+### 环境确认
+
+| 项 | 值 |
+| --- | --- |
+| Python | 3.14.7 |
+| PySide6 / Qt | 6.12.0 / 6.12.0 |
+| 平台插件 | `windows`（1 块屏幕），CI 用 `offscreen` |
+| 安装方式 | `pip install -e ".[gui]"`（可选依赖，核心与 CI 不引入 Qt） |
+
+缺少 PySide6 时 `run_gui()` 返回 1 并提示 `pip install -e ".[gui]"`，由单元测试固定该行为。
+
 ### 完成
 
 - **解析层** `nps/decode/`：Ethernet II / 802.1Q / DLT_NULL / DLT_LINUX_SLL / DLT_RAW，
