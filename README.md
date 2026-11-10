@@ -58,6 +58,20 @@ python -m nps -i "<设备名>" --duration 5
 python scripts/probe_pcap.py
 ```
 
+### Windows 快捷启动
+
+双击 **`scripts\run_gui.cmd`** 即可启动（不会留下控制台窗口）。也可以做成桌面快捷方式：
+
+```powershell
+$ws = New-Object -ComObject WScript.Shell
+$sc = $ws.CreateShortcut("$env:USERPROFILE\Desktop\NPS Sniffer.lnk")
+$sc.TargetPath = "$PWD\.venv\Scripts\pythonw.exe"
+$sc.Arguments = "-m nps"
+$sc.WorkingDirectory = "$PWD"
+$sc.Description = "NPS 网络嗅探器"
+$sc.Save()
+```
+
 Linux 需要 `CAP_NET_RAW` 与 `CAP_NET_ADMIN`：
 
 ```bash
