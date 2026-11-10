@@ -63,8 +63,10 @@ def decode(
         if body:
             layer.add("Data", f"{body} bytes", offset + 8, body)
         layers.append(layer)
+        decoded.put(**{"icmp.type": type_code, "icmp.code": code})
         decoded.summary = f"{type_name}  id=0x{identifier:04x}, seq={sequence}, {body} bytes"
         return
 
     layers.append(layer)
+    decoded.put(**{"icmp.type": type_code, "icmp.code": code})
     decoded.summary = f"{type_name}, Code: {code}"

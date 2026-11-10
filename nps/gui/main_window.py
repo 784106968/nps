@@ -39,7 +39,9 @@ from nps.capture.libpcap import PcapError
 from nps.capture.pcap_backend import PcapBackend
 from nps.core.buffer import BoundedPacketQueue
 from nps.core.packet import Packet
+from nps.filters import FilterError
 from nps.gui.detail_tree import DetailTree
+from nps.gui.filter_proxy import PacketFilterProxy
 from nps.gui.hex_view import HexView
 from nps.gui.packet_model import COLUMNS, PacketTableModel
 from nps.pcapio import write_pcap
@@ -88,6 +90,7 @@ class MainWindow(QMainWindow):
         self._paused = False
 
         self.packet_model = PacketTableModel(MODEL_CAPACITY, self)
+        self.filter_proxy = PacketFilterProxy(self)
         self.table = QTableView()
         self.detail_tree = DetailTree()
         self.hex_view = HexView()
@@ -155,6 +158,32 @@ class MainWindow(QMainWindow):
         self.autoscroll.setChecked(True)
         toolbar.addWidget(self.autoscroll)
 
+        # ---- 第二行：显示过滤器 ----
+        self.addToolBarBreak()
+        display_bar = QToolBar("显示过滤器", self)
+        display_bar.setMovable(False)
+        self.addToolBar(display_bar)
+
+        display_bar.addWidget(QLabel(" 显示过滤器 "))
+        self.display_filter_edit = QLineEdit()
+        self.display_filter_edit.setPlaceholderText(
+            "例如 ip.src == 10.0.0.1 && tcp.port == 443，留空表示不过滤"
+        )
+        self.display_filter_edit.setMinimumWidth(420)
+        self.display_filter_edit.setClearButtonEnabled(True)
+        display_bar.addWidget(self.display_filter_edit)
+
+        self.filter_error_label = QLabel("")
+        self.filter_error_label.setStyleSheet("color: #c62828; padding-left: 8px;")
+        display_bar.addWidget(self.filter_error_label)
+
+        self._filter_timer = QTimer(self)
+        self._filter_timer.setSingleShot(True)
+        self._filter_timer.setInterval(250)
+        self._filter_timer.timeout.connect(self._apply_display_filter)
+        self.display_filter_edit.textChanged.connect(lambda _: self._filter_timer.start())
+        self.display_filter_edit.returnPressed.connect(self._apply_display_filter)
+
     def _build_panes(self) -> None:
         self._configure_table()
 
@@ -170,7 +199,8 @@ class MainWindow(QMainWindow):
         self.setCentralWidget(self.splitter)
 
     def _configure_table(self) -> None:
-        self.table.setModel(self.packet_model)
+        self.filter_proxy.setSourceModel(self.packet_model)
+        self.table.setModel(self.filter_proxy)
         self.table.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
         self.table.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
         self.table.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
@@ -332,7 +362,10 @@ class MainWindow(QMainWindow):
     def _on_current_row_changed(self, current, previous) -> None:
         if not current.isValid():
             return
-        row = current.row()
+        source_index = self.filter_proxy.mapToSource(current)
+        if not source_index.isValid():
+            return
+        row = source_index.row()
         packet = self.packet_model.packet_at(row)
         decoded = self.packet_model.decoded_at(row)
         if packet is None or decoded is None:
@@ -341,6 +374,25 @@ class MainWindow(QMainWindow):
         self.detail_tree.show_layers(decoded.layers)
         self.detail_tree.blockSignals(False)
         self.hex_view.set_data(bytes(packet.raw))
+
+    def _apply_display_filter(self) -> bool:
+        expression = self.display_filter_edit.text()
+        try:
+            self.filter_proxy.apply(expression)
+        except FilterError as exc:
+            # 保留上一条有效规则，只提示错误，避免列表在输入过程中反复跳动
+            self.display_filter_edit.setStyleSheet("border: 1px solid #c62828;")
+            self.filter_error_label.setText(f"× {exc}")
+            self._update_status(f"过滤表达式无效：{exc}")
+            return False
+
+        self.display_filter_edit.setStyleSheet("")
+        self.filter_error_label.setText("")
+        if not self.table.currentIndex().isValid():
+            self.detail_tree.clear_data()
+            self.hex_view.clear()
+        self._update_status()
+        return True
 
     def _set_running(self, running: bool) -> None:
         self.start_button.setEnabled(not running)
@@ -356,7 +408,12 @@ class MainWindow(QMainWindow):
         elif self._backend is not None and not self._paused:
             self.status_label.setText("捕获中")
 
-        self.count_label.setText(f"包数: {self.packet_model.rowCount()}")
+        total = self.packet_model.rowCount()
+        visible = self.filter_proxy.rowCount()
+        if self.filter_proxy.active:
+            self.count_label.setText(f"包数: {total} / 显示 {visible}")
+        else:
+            self.count_label.setText(f"包数: {total}")
         kernel_drop = 0
         if self._backend is not None:
             try:
@@ -375,14 +432,24 @@ class MainWindow(QMainWindow):
             self.table.scrollToBottom()
         self._update_status()
 
-    def select_row(self, row: int) -> None:
-        model = self.packet_model
-        index = model.index(row, 0)
+    def select_row(self, row: int) -> bool:
+        """按源模型行号选中；返回是否可见（被过滤掉时返回 False）。"""
+        source_index = self.packet_model.index(row, 0)
+        proxy_index = self.filter_proxy.mapFromSource(source_index)
+        if not proxy_index.isValid():
+            return False
         self.table.selectionModel().setCurrentIndex(
-            index,
+            proxy_index,
             QItemSelectionModel.SelectionFlag.ClearAndSelect
             | QItemSelectionModel.SelectionFlag.Rows,
         )
+        return True
+
+    def set_display_filter(self, expression: str) -> bool:
+        """设置显示过滤器；返回是否编译成功（失败时保留上一条有效规则）。"""
+        self.display_filter_edit.setText(expression)
+        self._filter_timer.stop()
+        return self._apply_display_filter()
 
     def closeEvent(self, event) -> None:  # noqa: N802
         self.stop_capture()

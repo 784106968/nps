@@ -67,6 +67,17 @@ def decode(
         layer.add("TCP payload", f"{body_len} bytes", offset + data_offset, body_len)
     layers.append(layer)
 
+    decoded.put(
+        **{
+            "tcp.srcport": src_port,
+            "tcp.dstport": dst_port,
+            "tcp.flags": flags,
+            "tcp.flags.syn": int(bool(flags & 0x02)),
+            "tcp.flags.ack": int(bool(flags & 0x10)),
+            "tcp.len": body_len,
+        }
+    )
+
     decoded.summary = (
         f"{src_port} → {dst_port} [{flag_text}] Seq={seq} Ack={ack} Win={window} Len={body_len}"
     )

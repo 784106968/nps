@@ -33,14 +33,22 @@ class Field:
 
 @dataclass(slots=True)
 class Decoded:
-    """一个数据包的解析结果。"""
+    """一个数据包的解析结果。
+
+    ``fields`` 是给显示过滤器用的扁平字段表（如 ``ip.src``、``tcp.dstport``），
+    与详情树解耦：界面看树，过滤看键值。
+    """
 
     layers: list[Field] = field(default_factory=list)
     protocol: str = "UNKNOWN"
     src: str = "-"
     dst: str = "-"
     summary: str = ""
+    fields: dict[str, object] = field(default_factory=dict)
 
     @property
     def names(self) -> list[str]:
         return [layer.name for layer in self.layers]
+
+    def put(self, **values: object) -> None:
+        self.fields.update(values)

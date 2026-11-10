@@ -14,7 +14,7 @@
 | --- | --- | --- |
 | P0 | 仓库基线、ctypes 捕获内核、设备枚举、BPF、统计、停止机制 | **完成**（在线验收全过） |
 | P1 | Wireshark 风格三窗格 GUI、7 种协议解析、十六进制联动、PCAP 导出 | **完成**（实时落盘顺延 P3） |
-| P2 | 显示过滤（`icmp.type`、`ip.proto`、`protocol`、逻辑运算） | 未开始 |
+| P2 | 显示过滤（`ip.src`、`tcp.port`、`icmp.type`、`protocol`、逻辑运算、CIDR） | **完成**（HTTP 语义过滤待 P4 DPI） |
 | P3 | 会话表与流追踪（`stream_id`、同流高亮） | 未开始 |
 | P4 | DPI 协议识别、详情树、统计视图 | 未开始 |
 | P5 | 流时序图、性能基线 | 未开始 |
@@ -50,6 +50,11 @@ python -m nps --list-interfaces
 
 # 抓取 20 个 80 端口包并打印摘要
 python -m nps -i "<设备名>" -f "tcp port 80" -c 20
+
+# 界面第二行是「显示过滤器」，支持逻辑运算与 CIDR，例如：
+#   ip.src == 10.0.0.5 && tcp.port == 443
+#   ip.addr == 192.168.0.0/16 && !(protocol == arp)
+# 语法见 docs/FILTER_SYNTAX.md
 
 # 抓 5 秒后自动停止并输出统计
 python -m nps -i "<设备名>" --duration 5

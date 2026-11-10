@@ -3,11 +3,13 @@
 ## 分层
 
 ```text
-GUI                       PySide6：三窗格、会话视图、流时序图（P3+）
+GUI                       PySide6：三窗格、过滤栏、会话视图、流时序图（P3+）
    │  只读模型 / 只发命令
-解析层                    decode：Ethernet/ARP/IPv4/IPv6/TCP/UDP/ICMP → 字段树
+过滤层                    compile_filter → QSortFilterProxyModel（只影响显示）
    │
-会话与识别层 (P3+)        五元组规范化、会话表、DPI、显示过滤求值
+解析层                    decode：Ethernet/ARP/IPv4/IPv6/TCP/UDP/ICMP → 字段树 + 扁平字段表
+   │
+会话与识别层 (P3+)        五元组规范化、会话表、DPI
    │
 核心层                    Packet 模型、定容存储、有界队列、统计
    │

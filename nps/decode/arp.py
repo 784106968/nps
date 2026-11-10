@@ -65,6 +65,7 @@ def decode(raw: bytes, offset: int, layers: list[Field], decoded: Decoded) -> No
     decoded.protocol = "ARP"
     decoded.src = sender_ip
     decoded.dst = target_ip
+    decoded.put(**{"arp.op": operation, "arp.sender": sender_ip, "arp.target": target_ip})
     if operation == 1:
         decoded.summary = f"Who has {target_ip}? Tell {sender_ip}"
     elif operation == 2:
