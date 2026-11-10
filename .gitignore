@@ -1,0 +1,31 @@
+# 虚拟环境与缓存
+.venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+coverage.xml
+
+# 构建产物
+build/
+dist/
+*.egg-info/
+*.whl
+
+# 课程讲义：仅作本地参考，不入公开仓库（如决定入库，删除本行）
+实验_*.pdf
+
+# 本地抓包数据：一律不入库（只允许 tests/fixtures 下的合成 PCAP）
+*.pcap
+*.pcapng
+*.cap
+!tests/fixtures/*.pcap
+
+# IDE / 系统
+.idea/
+.vscode/
+Thumbs.db
+.DS_Store

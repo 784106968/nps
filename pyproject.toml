@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "nps-sniffer"
+version = "0.1.0"
+description = "NPS：基于 libpcap/Npcap 配置新 API 的轻量网络嗅探器（实验 1A）"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "MIT"
+license-files = ["LICENSE"]
+keywords = ["pcap", "sniffer", "network", "education"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Environment :: Console",
+  "Intended Audience :: Education",
+  "Operating System :: Microsoft :: Windows",
+  "Operating System :: POSIX :: Linux",
+  "Programming Language :: Python :: 3",
+  "Topic :: System :: Networking :: Monitoring",
+]
+# 核心（捕获/解析/CLI）不依赖任何第三方库：libpcap 通过 ctypes 直接调用。
+dependencies = []
+
+[project.optional-dependencies]
+gui = ["PySide6>=6.6"]
+dev = ["pytest>=8", "pytest-cov>=5", "ruff>=0.6"]
+
+[project.scripts]
+nps = "nps.__main__:main"
+
+[tool.setuptools.packages.find]
+include = ["nps*"]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["."]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "SIM"]
+
+[tool.pytest.ini_options]
+minversion = "8.0"
+testpaths = ["tests"]
+addopts = "-ra"
+markers = [
+  "requires_npcap: 需要真实网卡与 libpcap/Npcap 权限，CI 中跳过",
+]
+
+[tool.coverage.run]
+source = ["nps"]

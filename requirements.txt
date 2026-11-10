@@ -1,0 +1,6 @@
+# 运行时不依赖第三方库：libpcap / Npcap 通过 ctypes 直接调用。
+# 依赖以 pyproject.toml 为唯一事实来源，本文件仅作占位，避免两份清单漂移。
+#
+# GUI 阶段（P1 起）：pip install -e ".[gui]"
+# 开发工具：        pip install -e ".[dev]"
+-e .
