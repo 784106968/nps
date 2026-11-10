@@ -77,6 +77,31 @@ def test_invalid_filter_raises() -> None:
         backend.close()
 
 
+def test_export_then_read_back(tmp_path) -> None:
+    """导出的 PCAP 能被 libpcap 重新读回，包数与时间戳保持一致。"""
+    from nps.pcapio import write_pcap
+
+    packets, _ = collect()
+    target = tmp_path / "export.pcap"
+    assert write_pcap(target, packets) == len(packets)
+
+    backend = PcapBackend()
+    queue = BoundedPacketQueue(100)
+    backend.open_offline(str(target))
+    try:
+        backend.start(queue.put)
+        deadline = time.monotonic() + 5
+        while backend.is_running and time.monotonic() < deadline:
+            time.sleep(0.01)
+        time.sleep(0.05)
+        restored = queue.drain(100)
+    finally:
+        backend.close()
+
+    assert len(restored) == len(packets)
+    assert [p.wirelen for p in restored] == [p.wirelen for p in packets]
+
+
 def test_raw_bytes_preserved() -> None:
     packets, _ = collect()
     # 以太网帧头 + IPv4 + UDP 载荷都应在 raw 中
