@@ -131,3 +131,51 @@
 - 显示过滤：词法/语法/求值三层拆分，字段覆盖 `icmp.type`、`ip.proto`、`protocol`、`stream_id`；
 - 运算符 `== != < <= > >= && || !` 与括号，优先级 `!` > 比较 > `&&` > `||`；
 - 过滤栏实时校验与错误定位，`docs/FILTER_SYNTAX.md` 同步。
+
+---
+
+## 2026-11-11（周三）｜P2：显示过滤
+
+### 完成
+
+- **三层实现**：
+  `lexer.py`（标识符/整数/字符串/IP 字面量/运算符，带字符位置）、
+  `parser.py`（递归下降，优先级 `!` > 比较 > `&&` > `||`）、
+  `evaluator.py`（字段表、编译期类型检查、谓词求值）、
+  `display_filter.py`（对外 `compile_filter`）。
+- **字段 24 个**：`ip.src/dst/addr/proto/version/len/ttl`、`tcp.port/srcport/dstport/flags.syn/flags.ack/len`、
+  `udp.*`、`icmp.type/code`、`arp.op`、`protocol`、`stream_id`、`frame.len/number`；`ip.addr` 支持 CIDR。
+- **解码层**新增 `Decoded.fields` 扁平字段表，解析时顺带写入，过滤器不再二次解析原始字节。
+- **界面**：第二行「显示过滤器」，250 ms 防抖，回车立即生效；错误时输入框变红、右侧显示"第 N 列：原因"、
+  状态栏同步提示，且**上一条有效规则继续生效**；状态栏同时显示「包数 / 显示」。
+- **代理模型**：过滤不删包，清空表达式立即恢复，`No.` 保持抓包时的全局序号。
+- 文档 `docs/FILTER_SYNTAX.md`：文法、字段表、多值语义、示例与错误示例。
+
+### 实测数据
+
+| 项目 | 结果 |
+| --- | --- |
+| 全量测试 | **130 passed**（新增 40 条：词法 5、语法 6、求值 22、类型错误 7） |
+| 过滤生效 | 6 包中 `ip.src == 192.168.1.10 && (tcp.port == 80 \|\| icmp.type == 8)` → 显示 3 包 |
+| 错误提示 | `ip.srcc == 1` → 「第 1 列：未知字段 'ip.srcc'」，列表保持上一条规则的 3 行 |
+| 静态检查 | `ruff check` / `ruff format --check` 通过 |
+
+### 问题与修正
+
+1. **IP 字面量被拆碎**：`10.0.0.1` 原先被词法器读成 `INT(10)` + 未知字符 `.`。
+   改为在数字/标识符分支里按地址字符集（`0-9a-f:./`）整体扫描，识别出 `IP` 类型 token；
+   顺带支持 `fe80::1`、`::1`、`10.0.0.0/8`。
+2. **文本字段与数字比较未报错**：`protocol == 80` 原本能编译且恒为假，违反"类型不匹配即错误"的约定；
+   补上校验，报「字段 protocol 需要字符串，得到数字 80」。
+3. **Qt 6.12 弃用告警**：`invalidateFilter()` 与 `invalidateRowsFilter()` 均被标记弃用，改调公共 `invalidate()`。
+
+### 未完成
+
+- `protocol == http` 这类应用层判断依赖 P4 的 DPI；当前 `protocol` 只到 L3/L4（TCP/UDP/ICMP/ARP）。
+  `FILTER_SYNTAX.md` 已注明：DPI 落地前请用 `tcp.port == 80`。
+
+### 次日计划（P3）
+
+- 五元组规范化与双向合并、`stream_id` 分配；
+- 会话统计（上下行包/字节、首末时间、TCP 状态）与老化（FIN/RST、UDP 空闲）；
+- 2 万会话容量与 LRU 淘汰；同流高亮与会话视图。
