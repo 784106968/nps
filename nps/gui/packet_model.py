@@ -6,6 +6,7 @@ from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
 from PySide6.QtGui import QColor
 
 from nps.core.packet import Packet
+from nps.core.session import SessionTable
 from nps.core.store import DEFAULT_CAPACITY, PacketStore
 from nps.decode import Decoded, decode_packet
 
@@ -21,6 +22,7 @@ PROTOCOL_COLORS = {
 }
 
 NUMERIC_COLUMNS = {0, 5}
+HIGHLIGHT_COLOR = QColor("#e3f2fd")
 _NO_PARENT = QModelIndex()
 
 
@@ -35,6 +37,8 @@ class PacketTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._store = PacketStore(capacity)
         self._decoded: dict[int, Decoded] = {}
+        self.session_table = SessionTable()
+        self._highlight_stream: int | None = None
 
     # ---- Qt 接口 ----
     def rowCount(self, parent: QModelIndex = _NO_PARENT) -> int:  # noqa: N802
@@ -55,6 +59,14 @@ class PacketTableModel(QAbstractTableModel):
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if role == Qt.ItemDataRole.ForegroundRole and column == 4:
             return PROTOCOL_COLORS.get(self._decoded_for(packet).protocol)
+        if role == Qt.ItemDataRole.ToolTipRole and column == 6:
+            return self._decoded_for(packet).summary
+        if (
+            role == Qt.ItemDataRole.BackgroundRole
+            and self._highlight_stream is not None
+            and packet.stream_id == self._highlight_stream
+        ):
+            return HIGHLIGHT_COLOR
         return None
 
     def headerData(  # noqa: N802
@@ -73,6 +85,9 @@ class PacketTableModel(QAbstractTableModel):
     def append_batch(self, packets: list[Packet]) -> None:
         if not packets:
             return
+        for packet in packets:
+            self.session_table.add(packet)
+
         overflow = self._store.overflow_for(len(packets))
         if overflow:
             removed = [self._store[i] for i in range(overflow)]
@@ -91,7 +106,28 @@ class PacketTableModel(QAbstractTableModel):
         self.beginResetModel()
         self._store.clear()
         self._decoded.clear()
+        self.session_table.clear()
+        self._highlight_stream = None
         self.endResetModel()
+
+    def set_highlight_stream(self, stream_id: int | None) -> None:
+        if stream_id == self._highlight_stream:
+            return
+        self._highlight_stream = stream_id
+        if self.rowCount():
+            self.dataChanged.emit(
+                self.index(0, 0),
+                self.index(self.rowCount() - 1, 0),
+                [Qt.ItemDataRole.BackgroundRole],
+            )
+
+    def row_of_stream(self, stream_id: int) -> int:
+        """返回该会话第一条包所在行，找不到返回 -1。"""
+        for row in range(len(self._store)):
+            packet = self._store[row]
+            if packet.stream_id == stream_id:
+                return row
+        return -1
 
     def packet_at(self, row: int) -> Packet | None:
         if 0 <= row < len(self._store):
@@ -105,6 +141,12 @@ class PacketTableModel(QAbstractTableModel):
     def packets(self) -> list[Packet]:
         """快照当前表内的全部包（导出用）。"""
         return [self._store[i] for i in range(len(self._store))]
+
+    def last_timestamp(self) -> float:
+        """最后一个包的抓包时间，用作会话老化基准。"""
+        if not len(self._store):
+            return 0.0
+        return self._store[len(self._store) - 1].ts
 
     @property
     def dropped_old(self) -> int:

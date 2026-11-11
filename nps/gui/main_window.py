@@ -14,11 +14,14 @@
 
 from __future__ import annotations
 
+import time
+
 from PySide6.QtCore import QItemSelectionModel, Qt, QTimer
 from PySide6.QtWidgets import (
     QAbstractItemView,
     QCheckBox,
     QComboBox,
+    QDockWidget,
     QFileDialog,
     QHeaderView,
     QLabel,
@@ -44,6 +47,7 @@ from nps.gui.detail_tree import DetailTree
 from nps.gui.filter_proxy import PacketFilterProxy
 from nps.gui.hex_view import HexView
 from nps.gui.packet_model import COLUMNS, PacketTableModel
+from nps.gui.session_model import SessionTableModel
 from nps.pcapio import write_pcap
 
 TICK_MS = 16
@@ -91,6 +95,7 @@ class MainWindow(QMainWindow):
 
         self.packet_model = PacketTableModel(MODEL_CAPACITY, self)
         self.filter_proxy = PacketFilterProxy(self)
+        self.session_model = SessionTableModel(self.packet_model.session_table, self)
         self.table = QTableView()
         self.detail_tree = DetailTree()
         self.hex_view = HexView()
@@ -98,11 +103,17 @@ class MainWindow(QMainWindow):
 
         self._build_toolbar()
         self._build_panes()
+        self._build_session_dock()
         self._build_statusbar()
 
         self._timer = QTimer(self)
         self._timer.setInterval(TICK_MS)
         self._timer.timeout.connect(self._on_tick)
+
+        self._session_timer = QTimer(self)
+        self._session_timer.setInterval(1_000)
+        self._session_timer.timeout.connect(self._on_session_tick)
+        self._session_timer.start()
 
         self.detail_tree.fieldSelected.connect(self.hex_view.highlight_range)
         self.refresh_interfaces()
@@ -229,12 +240,43 @@ class MainWindow(QMainWindow):
         layout.addWidget(widget, 1)
         return container
 
+    def _build_session_dock(self) -> None:
+        self.session_view = QTableView()
+        self.session_view.setModel(self.session_model)
+        self.session_view.setSelectionBehavior(QAbstractItemView.SelectionBehavior.SelectRows)
+        self.session_view.setSelectionMode(QAbstractItemView.SelectionMode.SingleSelection)
+        self.session_view.setEditTriggers(QAbstractItemView.EditTrigger.NoEditTriggers)
+        self.session_view.setAlternatingRowColors(True)
+        self.session_view.verticalHeader().setVisible(False)
+        self.session_view.verticalHeader().setDefaultSectionSize(22)
+        header = self.session_view.horizontalHeader()
+        header.setStretchLastSection(False)
+        header.setSectionResizeMode(QHeaderView.ResizeMode.Interactive)
+        for column, width in enumerate((40, 54, 244, 62, 84, 52, 58)):
+            self.session_view.setColumnWidth(column, width)
+        header.setSectionResizeMode(7, QHeaderView.ResizeMode.Stretch)
+        self.session_view.clicked.connect(self._on_session_clicked)
+        self.session_view.doubleClicked.connect(self._on_session_activated)
+
+        dock = QDockWidget("会话", self)
+        dock.setObjectName("sessionDock")
+        dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        dock.setWidget(self.session_view)
+        dock.setMinimumWidth(620)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
+        self.resizeDocks([dock], [700], Qt.Orientation.Horizontal)
+        self.session_dock = dock
+
     def _build_statusbar(self) -> None:
         bar = self.statusBar()
         self.status_label = QLabel("就绪")
+        self.stream_label = QLabel("流: 0")
         self.count_label = QLabel("包数: 0")
         self.drop_label = QLabel("队列 0 / 丢弃 0 / 内核 0")
         bar.addWidget(self.status_label, 1)
+        bar.addPermanentWidget(self.stream_label)
         bar.addPermanentWidget(self.count_label)
         bar.addPermanentWidget(self.drop_label)
 
@@ -318,6 +360,8 @@ class MainWindow(QMainWindow):
         self.packet_model.clear()
         self.detail_tree.clear_data()
         self.hex_view.clear()
+        self.session_model.invalidate()
+        self.session_model.refresh()
         self._update_status()
 
     def save_pcap(self) -> None:
@@ -374,6 +418,50 @@ class MainWindow(QMainWindow):
         self.detail_tree.show_layers(decoded.layers)
         self.detail_tree.blockSignals(False)
         self.hex_view.set_data(bytes(packet.raw))
+        self.packet_model.set_highlight_stream(packet.stream_id)
+        self._sync_session_selection(packet.stream_id)
+
+    def _on_session_tick(self) -> None:
+        # 用"最后一个包的时间戳"做老化基准：离线回放旧 PCAP 时不会因为系统时间而误清空
+        now = self.packet_model.last_timestamp() or time.time()
+        removed = self.packet_model.session_table.expire(now)
+        self.session_model.refresh()
+        if removed:
+            self._update_status()
+
+    def _on_session_clicked(self, index) -> None:
+        session = self.session_model.session_at(index.row())
+        if session is None:
+            return
+        self.packet_model.set_highlight_stream(session.stream_id)
+
+    def _on_session_activated(self, index) -> None:
+        session = self.session_model.session_at(index.row())
+        if session is None:
+            return
+        self.packet_model.set_highlight_stream(session.stream_id)
+        row = self.packet_model.row_of_stream(session.stream_id)
+        if row < 0:
+            self.status_label.setText("该流的包已被容量上限淘汰")
+            return
+        if self.select_row(row):
+            self.table.scrollTo(self.table.currentIndex())
+        else:
+            self.status_label.setText(f"流 #{session.stream_id} 的包被显示过滤隐藏")
+
+    def _sync_session_selection(self, stream_id: int | None) -> None:
+        if stream_id is None:
+            return
+        row = self.session_model.row_of(stream_id)
+        if row < 0:
+            return
+        index = self.session_model.index(row, 0)
+        if index == self.session_view.currentIndex():
+            return
+        self.session_view.blockSignals(True)
+        self.session_view.setCurrentIndex(index)
+        self.session_view.scrollTo(index)
+        self.session_view.blockSignals(False)
 
     def _apply_display_filter(self) -> bool:
         expression = self.display_filter_edit.text()
@@ -408,6 +496,7 @@ class MainWindow(QMainWindow):
         elif self._backend is not None and not self._paused:
             self.status_label.setText("捕获中")
 
+        self.stream_label.setText(f"流: {len(self.packet_model.session_table)}")
         total = self.packet_model.rowCount()
         visible = self.filter_proxy.rowCount()
         if self.filter_proxy.active:
@@ -430,6 +519,7 @@ class MainWindow(QMainWindow):
         self.packet_model.append_batch(packets)
         if packets:
             self.table.scrollToBottom()
+        self.session_model.refresh()
         self._update_status()
 
     def select_row(self, row: int) -> bool:
