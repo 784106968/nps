@@ -46,7 +46,7 @@ value      := integer | "quoted string" | identifier | ip-literal
 | `udp.len` | 整数 | UDP 长度字段 |
 | `icmp.type` / `icmp.code` | 整数 | ICMP 类型 / 代码（v4 与 v6 通用） |
 | `arp.op` | 整数 | 1 请求 / 2 应答 |
-| `protocol` | 字符串 | 协议名，大小写不敏感 |
+| `protocol` | 字符串 | 最高层协议名（DPI 标签优先），大小写不敏感 |
 | `stream_id` | 整数 | 会话编号（P3 起有值，当前恒为空） |
 | `frame.len` | 整数 | 线路长度 |
 | `frame.number` | 整数 | 帧序号（过滤后不重新编号） |
@@ -87,6 +87,11 @@ icmp.type == 8 && ip.dst == 8.8.8.8
 
 ## 6. 与 DPI 的关系
 
-`protocol` 当前取自解码结果（`TCP` / `UDP` / `ICMP` / `ARP` / `IPv6` …）。
-`protocol == http` 这类应用层判断依赖 P4 的 DPI 签名；在 DPI 落地前，
-HTTP 流量请先用 `tcp.port == 80` 过滤。
+`protocol` 表示**最高层协议**：
+
+- 会话被 DPI 命中时是 `HTTP` / `TLS` / `SSH` / `DNS` / `BitTorrent`；
+- 只有端口推断时同样是应用名，但置信度为 `port`（悬停协议列可见依据）；
+- 都没识别到时回落到传输层 `TCP` / `UDP` / `ICMP` / `ARP`。
+
+因此一条 HTTP 流**不再匹配** `protocol == tcp`，要按传输层筛选请用 `ip.proto == tcp`。
+识别依据可以悬停协议列查看，或在详情树最底部的应用层节点里读到「置信度 / 识别依据」。

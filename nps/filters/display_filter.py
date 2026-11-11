@@ -15,10 +15,11 @@ from nps.filters.parser import Parser
 @dataclass(frozen=True, slots=True)
 class DisplayFilter:
     expression: str
-    predicate: Callable[[Packet, Decoded], bool]
+    predicate: Callable[..., bool]
 
-    def match(self, packet: Packet, decoded: Decoded) -> bool:
-        return self.predicate(packet, decoded)
+    def match(self, packet: Packet, decoded: Decoded, session: object | None = None) -> bool:
+        """``session`` 可选：传入时会话上的 DPI 标签优先于传输层协议。"""
+        return self.predicate(packet, decoded, session)
 
 
 def compile_filter(expression: str) -> DisplayFilter:

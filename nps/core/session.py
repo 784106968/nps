@@ -17,6 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from nps.core.packet import Packet
+from nps.decode.dpi.matcher import CONFIDENCE_DPI, classify
 
 TCP = 6
 UDP = 17
@@ -58,8 +59,12 @@ class Session:
     bytes_down: int = 0
     tcp_flags: set[str] = field(default_factory=set)
     first_uplink_payload: bytes | None = None
+    first_downlink_payload: bytes | None = None
     state: str = "active"
     pid: int | None = None  # 进程归属：本期恒为 None，见 ProcessResolver
+    app_protocol: str | None = None
+    confidence: str | None = None
+    classification_note: str = ""
 
     @property
     def duration(self) -> float:
@@ -232,6 +237,10 @@ class SessionTable:
                 protocol=PROTOCOL_NAMES.get(flow.proto, f"IP/{flow.proto}"),
             )
             self._next_id += 1
+            app, confidence, note = classify(None, None, 0, session.server[1], session.proto)
+            session.app_protocol = app
+            session.confidence = confidence
+            session.classification_note = note
             self._sessions[key] = session
             self._by_id[session.stream_id] = session
             self._enforce_capacity()
@@ -261,11 +270,30 @@ class SessionTable:
             elif {"FIN", "ACK"} <= session.tcp_flags and flow.tcp_flags & 0x01:
                 session.state = "closing"
 
-        if up and session.first_uplink_payload is None and flow.payload_len > 0:
+        new_payload = False
+        if flow.payload_len > 0:
             take = min(flow.payload_len, MAX_PAYLOAD)
-            session.first_uplink_payload = bytes(
-                packet.raw[flow.payload_offset : flow.payload_offset + take]
+            payload = bytes(packet.raw[flow.payload_offset : flow.payload_offset + take])
+            if up and session.first_uplink_payload is None:
+                session.first_uplink_payload = payload
+                new_payload = True
+            elif not up and session.first_downlink_payload is None:
+                session.first_downlink_payload = payload
+                new_payload = True
+
+        # 端口初判可以被 DPI 覆盖；已经由签名确认过的就不再重算
+        if new_payload and session.confidence != CONFIDENCE_DPI:
+            app, confidence, note = classify(
+                session.first_uplink_payload,
+                session.first_downlink_payload,
+                0,
+                session.server[1],
+                session.proto,
             )
+            if app:
+                session.app_protocol = app
+                session.confidence = confidence
+                session.classification_note = note
 
     def _enforce_capacity(self) -> None:
         while len(self._sessions) > self._capacity:

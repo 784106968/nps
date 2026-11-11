@@ -227,3 +227,52 @@
 - `signatures.json` 与 DPI 匹配器：HTTP 请求行 / TLS ClientHello / SSH / BitTorrent / DNS；
 - 端口启发式仅作初筛并标注 `port` 置信度；
 - 详情树字段复制、协议分布与会话 Top N 统计。
+
+---
+
+## 2026-11-11（周三）｜P4：DPI 与 NPA 增强
+
+### 完成
+
+- **签名表** `nps/decode/dpi/signatures.json`：13 条规则
+  （HTTP 请求行 6 种方法 + 响应行 + `Host:` 头、TLS 握手、SSH ×2、BitTorrent、DNS 查询），
+  字段为 `protocol / direction / offset / pattern / description / kind`。
+- **匹配器**：`text` / `hex` / `contains` / `dns_query` 四种方式；
+  DNS 走结构化校验（QR=0、qdcount=1、QNAME 可解析），避免把响应误判为查询。
+- **会话集成**：端口先给 `port` 初判，命中签名升级为 `dpi`，一旦 `dpi` 不再重算；
+  结果挂在 `Session.app_protocol / confidence / classification_note`。
+- **界面**：
+  协议列显示最高层协议（HTTP/TLS/…），悬停给出「置信度 + 依据」；
+  详情树底部追加应用层节点（置信度、识别依据）；
+  字段支持右键「复制值 / 复制字段」与 `Ctrl+C`。
+- **统计视图**（与会话面板同为右侧页签）：协议分布、会话 Top 10、吞吐时间线；
+  协议分布与 Top N 从会话表聚合，时间线由包模型按秒累加，均与列表同源。
+- `docs/FILTER_SYNTAX.md` 更新：`protocol` 为最高层协议，传输层改用 `ip.proto`。
+
+### 实测数据
+
+| 项目 | 结果 |
+| --- | --- |
+| 全量测试 | **179 passed**（新增 29 条：DPI 23、界面 6） |
+| 正样本 | HTTP GET/POST、TLS ClientHello、SSH、BitTorrent、DNS 查询全部命中 |
+| 负样本 | 空载荷、随机 48 字节、`SSH-3.0`、`GET`（过短）、DNS 响应、伪 BitTorrent 均未误判 |
+| 6 包样本 | 识别为 HTTP / HTTP / TLS / DNS / SSH / UDP，5 条会话 |
+| 统计一致性 | 协议分布包数之和 == 会话表包数之和（测试断言） |
+
+### 问题与修正
+
+1. **`protocol == tcp` 不再命中 HTTP 流**：DPI 之后 `protocol` 表示最高层协议，这是预期语义，
+   但容易踩坑。补了 `ip.proto == tcp` 的说明与测试，文档同步。
+2. **Qt6 弃用 `setTextAlignment(int)`**：改传 `Qt.AlignmentFlag` 重载。
+3. **时间线只有 2 个数据点时柱条铺满整屏**，且峰值文字被遮挡：限制柱宽 16px、居中排布，
+   绘图区顶部留 22px 给标题。
+
+### 未完成
+
+- TLS SNI 未提取（需要解析 ClientHello 扩展），不在 P4 计划内，列为后续增强。
+
+### 次日计划（P5）
+
+- 流时序图（横轴时间、纵轴两端，标注方向与包长）；
+- 性能优化与 `docs/PERF.md` 基线；
+- `docs/DEMO.md` 五分钟演示脚本。

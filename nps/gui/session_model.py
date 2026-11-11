@@ -3,18 +3,11 @@
 from __future__ import annotations
 
 from PySide6.QtCore import QAbstractTableModel, QModelIndex, Qt
-from PySide6.QtGui import QColor
 
 from nps.core.session import Session, SessionTable
+from nps.gui.packet_model import PROTOCOL_COLORS
 
 COLUMNS = ("流", "协议", "会话", "包 ↑/↓", "字节 ↑/↓", "时长", "状态", "进程")
-
-PROTOCOL_COLORS = {
-    "TCP": QColor("#1a237e"),
-    "UDP": QColor("#0b6b3a"),
-    "ICMP": QColor("#6a1b9a"),
-    "ICMPv6": QColor("#6a1b9a"),
-}
 
 _NO_PARENT = QModelIndex()
 
@@ -41,8 +34,12 @@ class SessionTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.DisplayRole:
             return self._display(session, column)
         if role == Qt.ItemDataRole.ForegroundRole and column == 1:
-            return PROTOCOL_COLORS.get(session.protocol)
+            return PROTOCOL_COLORS.get(session.app_protocol or session.protocol)
         if role == Qt.ItemDataRole.ToolTipRole:
+            if session.app_protocol:
+                source = "DPI 识别" if session.confidence == "dpi" else "端口推断"
+                note = session.classification_note
+                return f"{session.label}\n{session.app_protocol}（{source}：{note}）"
             return session.label
         if role == Qt.ItemDataRole.TextAlignmentRole and column in {0, 3, 4, 5}:
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
@@ -91,7 +88,7 @@ class SessionTableModel(QAbstractTableModel):
         if column == 0:
             return str(session.stream_id)
         if column == 1:
-            return session.protocol
+            return session.app_protocol or session.protocol
         if column == 2:
             return session.label
         if column == 3:
