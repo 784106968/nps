@@ -103,6 +103,22 @@ pcap_dispatch
 - 统计视图从会话表聚合（协议分布、会话 Top N），吞吐时间线由包模型按秒累加，
   两者与列表同源，不做二次统计。
 
+### TLS 握手解析
+
+`nps/decode/tls.py` 在 TCP 载荷上再做一层解析，只读**明文部分**：
+
+| 层级 | 提取内容 |
+| --- | --- |
+| 记录层 | ContentType（握手/应用数据/告警）、Version、Length |
+| 握手层 | ClientHello / ServerHello、Random、Session ID、Cipher Suites |
+| 扩展 | `server_name`（SNI）、ALPN、supported_versions、supported_groups |
+
+- 应用数据（ContentType=23）只标注 `N bytes（密文）`，不尝试解密；
+- 记录跨 TCP 段时只解析首段，其余留白——这是"不做重组"的已知边界；
+- 字段偏移均为帧内绝对偏移，选中 SNI 可直接在十六进制中高亮域名。
+
+这也是讲义里"加密边界"的落地：抓得到包、读得出握手里的域名与套件，读不到正文。
+
 ## 链路类型与头部布局（实测结论）
 
 | 场景 | datalink | L3 偏移 | 说明 |
