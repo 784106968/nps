@@ -109,24 +109,28 @@ FIELD_NAMES = tuple(FIELD_SPECS)
 
 
 # ---- 编译期类型检查 ----
-def build_predicate(node: Node, expression: str) -> Callable[[Packet, Decoded], bool]:
+def build_predicate(node: Node, expression: str) -> Callable[..., bool]:
     if isinstance(node, And):
         left = build_predicate(node.left, expression)
         right = build_predicate(node.right, expression)
-        return lambda packet, decoded: left(packet, decoded) and right(packet, decoded)
+        return lambda packet, decoded, session=None: (
+            left(packet, decoded, session) and right(packet, decoded, session)
+        )
     if isinstance(node, Or):
         left = build_predicate(node.left, expression)
         right = build_predicate(node.right, expression)
-        return lambda packet, decoded: left(packet, decoded) or right(packet, decoded)
+        return lambda packet, decoded, session=None: (
+            left(packet, decoded, session) or right(packet, decoded, session)
+        )
     if isinstance(node, Not):
         operand = build_predicate(node.operand, expression)
-        return lambda packet, decoded: not operand(packet, decoded)
+        return lambda packet, decoded, session=None: not operand(packet, decoded, session)
     if isinstance(node, Compare):
         return _build_compare(node, expression)
     raise FilterError("无法识别的表达式", 0, expression)  # pragma: no cover
 
 
-def _build_compare(node: Compare, expression: str) -> Callable[[Packet, Decoded], bool]:
+def _build_compare(node: Compare, expression: str) -> Callable[..., bool]:
     spec = FIELD_SPECS.get(node.field)
     if spec is None:
         raise FilterError(f"未知字段 {node.field!r}", node.position, expression)
@@ -179,9 +183,15 @@ def _build_compare(node: Compare, expression: str) -> Callable[[Packet, Decoded]
     kind = spec.kind
     getter = spec.getter
     op = operator
+    is_protocol = node.field == "protocol"
 
-    def predicate(packet: Packet, decoded: Decoded) -> bool:
-        actual = getter(packet, decoded)
+    def predicate(packet: Packet, decoded: Decoded, session: object | None = None) -> bool:
+        if is_protocol:
+            # protocol 优先取会话上的 DPI 标签，其次是解码得到的传输层协议
+            app = getattr(session, "app_protocol", None)
+            actual = app or decoded.protocol
+        else:
+            actual = getter(packet, decoded)
         if actual is None:
             return False
         values = actual if isinstance(actual, frozenset) else (actual,)

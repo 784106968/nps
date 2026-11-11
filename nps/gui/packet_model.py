@@ -19,7 +19,14 @@ PROTOCOL_COLORS = {
     "ICMPv6": QColor("#6a1b9a"),
     "ARP": QColor("#8d6e00"),
     "IPv6": QColor("#004d40"),
+    "HTTP": QColor("#0d47a1"),
+    "TLS": QColor("#4a148c"),
+    "SSH": QColor("#00695c"),
+    "DNS": QColor("#ef6c00"),
+    "BitTorrent": QColor("#c62828"),
 }
+
+TIMELINE_SECONDS = 60
 
 NUMERIC_COLUMNS = {0, 5}
 HIGHLIGHT_COLOR = QColor("#e3f2fd")
@@ -39,6 +46,7 @@ class PacketTableModel(QAbstractTableModel):
         self._decoded: dict[int, Decoded] = {}
         self.session_table = SessionTable()
         self._highlight_stream: int | None = None
+        self._timeline: dict[int, int] = {}
 
     # ---- Qt 接口 ----
     def rowCount(self, parent: QModelIndex = _NO_PARENT) -> int:  # noqa: N802
@@ -58,9 +66,15 @@ class PacketTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.TextAlignmentRole and column in NUMERIC_COLUMNS:
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         if role == Qt.ItemDataRole.ForegroundRole and column == 4:
-            return PROTOCOL_COLORS.get(self._decoded_for(packet).protocol)
+            return PROTOCOL_COLORS.get(self.protocol_label(row))
         if role == Qt.ItemDataRole.ToolTipRole and column == 6:
             return self._decoded_for(packet).summary
+        if role == Qt.ItemDataRole.ToolTipRole and column == 4:
+            session = self.session_for(packet)
+            if session is not None and session.app_protocol:
+                source = "DPI 识别" if session.confidence == "dpi" else "端口推断"
+                return f"{session.app_protocol}（{source}：{session.classification_note}）"
+            return self._decoded_for(packet).protocol
         if (
             role == Qt.ItemDataRole.BackgroundRole
             and self._highlight_stream is not None
@@ -87,6 +101,8 @@ class PacketTableModel(QAbstractTableModel):
             return
         for packet in packets:
             self.session_table.add(packet)
+            second = int(packet.ts)
+            self._timeline[second] = self._timeline.get(second, 0) + 1
 
         overflow = self._store.overflow_for(len(packets))
         if overflow:
@@ -108,6 +124,7 @@ class PacketTableModel(QAbstractTableModel):
         self._decoded.clear()
         self.session_table.clear()
         self._highlight_stream = None
+        self._timeline.clear()
         self.endResetModel()
 
     def set_highlight_stream(self, stream_id: int | None) -> None:
@@ -142,6 +159,26 @@ class PacketTableModel(QAbstractTableModel):
         """快照当前表内的全部包（导出用）。"""
         return [self._store[i] for i in range(len(self._store))]
 
+    def session_for(self, packet: Packet):
+        if packet.stream_id is None:
+            return None
+        return self.session_table.get(packet.stream_id)
+
+    def protocol_label(self, row: int) -> str:
+        """优先显示 DPI/端口推断出的应用层协议。"""
+        packet = self.packet_at(row)
+        if packet is None:
+            return ""
+        session = self.session_for(packet)
+        if session is not None and session.app_protocol:
+            return session.app_protocol
+        return self._decoded_for(packet).protocol
+
+    def timeline(self, seconds: int = TIMELINE_SECONDS) -> list[tuple[int, int]]:
+        """按秒聚合的包数，供吞吐时间线使用。"""
+        items = sorted(self._timeline.items())[-seconds:]
+        return items
+
     def last_timestamp(self) -> float:
         """最后一个包的抓包时间，用作会话老化基准。"""
         if not len(self._store):
@@ -175,6 +212,9 @@ class PacketTableModel(QAbstractTableModel):
         if column == 3:
             return decoded.dst
         if column == 4:
+            session = self.session_for(packet)
+            if session is not None and session.app_protocol:
+                return session.app_protocol
             return decoded.protocol
         if column == 5:
             return str(packet.wirelen)

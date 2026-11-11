@@ -42,4 +42,7 @@ class PacketFilterProxy(QSortFilterProxyModel):
         decoded = model.decoded_at(source_row)
         if packet is None or decoded is None:
             return False
-        return self._display_filter.match(packet, decoded)
+        session = (
+            model.session_table.get(packet.stream_id) if packet.stream_id is not None else None
+        )
+        return self._display_filter.match(packet, decoded, session)

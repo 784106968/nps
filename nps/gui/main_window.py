@@ -42,12 +42,14 @@ from nps.capture.libpcap import PcapError
 from nps.capture.pcap_backend import PcapBackend
 from nps.core.buffer import BoundedPacketQueue
 from nps.core.packet import Packet
+from nps.decode import Field
 from nps.filters import FilterError
 from nps.gui.detail_tree import DetailTree
 from nps.gui.filter_proxy import PacketFilterProxy
 from nps.gui.hex_view import HexView
 from nps.gui.packet_model import COLUMNS, PacketTableModel
 from nps.gui.session_model import SessionTableModel
+from nps.gui.stats_view import StatsView
 from nps.pcapio import write_pcap
 
 TICK_MS = 16
@@ -96,6 +98,7 @@ class MainWindow(QMainWindow):
         self.packet_model = PacketTableModel(MODEL_CAPACITY, self)
         self.filter_proxy = PacketFilterProxy(self)
         self.session_model = SessionTableModel(self.packet_model.session_table, self)
+        self.stats_view = StatsView()
         self.table = QTableView()
         self.detail_tree = DetailTree()
         self.hex_view = HexView()
@@ -266,8 +269,19 @@ class MainWindow(QMainWindow):
         dock.setWidget(self.session_view)
         dock.setMinimumWidth(620)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, dock)
-        self.resizeDocks([dock], [700], Qt.Orientation.Horizontal)
         self.session_dock = dock
+
+        stats_dock = QDockWidget("统计", self)
+        stats_dock.setObjectName("statsDock")
+        stats_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        stats_dock.setWidget(self.stats_view)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, stats_dock)
+        self.tabifyDockWidget(dock, stats_dock)
+        dock.raise_()
+        self.stats_dock = stats_dock
+        self.resizeDocks([dock], [700], Qt.Orientation.Horizontal)
 
     def _build_statusbar(self) -> None:
         bar = self.statusBar()
@@ -362,6 +376,7 @@ class MainWindow(QMainWindow):
         self.hex_view.clear()
         self.session_model.invalidate()
         self.session_model.refresh()
+        self.stats_view.update_from(self.packet_model)
         self._update_status()
 
     def save_pcap(self) -> None:
@@ -414,8 +429,16 @@ class MainWindow(QMainWindow):
         decoded = self.packet_model.decoded_at(row)
         if packet is None or decoded is None:
             return
+        layers = list(decoded.layers)
+        session = self.packet_model.session_for(packet)
+        if session is not None and session.app_protocol:
+            source = "DPI 识别" if session.confidence == "dpi" else "端口推断"
+            node = Field(session.app_protocol, f"置信度: {source}", 0, 0)
+            node.add("识别依据", session.classification_note or "-", 0, 0)
+            layers.append(node)
+
         self.detail_tree.blockSignals(True)
-        self.detail_tree.show_layers(decoded.layers)
+        self.detail_tree.show_layers(layers)
         self.detail_tree.blockSignals(False)
         self.hex_view.set_data(bytes(packet.raw))
         self.packet_model.set_highlight_stream(packet.stream_id)
@@ -426,6 +449,7 @@ class MainWindow(QMainWindow):
         now = self.packet_model.last_timestamp() or time.time()
         removed = self.packet_model.session_table.expire(now)
         self.session_model.refresh()
+        self.stats_view.update_from(self.packet_model)
         if removed:
             self._update_status()
 
@@ -520,6 +544,7 @@ class MainWindow(QMainWindow):
         if packets:
             self.table.scrollToBottom()
         self.session_model.refresh()
+        self.stats_view.update_from(self.packet_model)
         self._update_status()
 
     def select_row(self, row: int) -> bool:

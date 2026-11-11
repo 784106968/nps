@@ -1,0 +1,110 @@
+{
+  "version": 1,
+  "note": "每条规则：protocol / direction / offset / pattern / description / kind。direction 相对客户端（uplink = 客户端发往服务端）。kind: text=按文本比较，hex=按十六进制字节比较，dns_query=结构化校验。",
+  "rules": [
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "GET ",
+      "kind": "text",
+      "description": "HTTP 请求行（GET）"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "POST ",
+      "kind": "text",
+      "description": "HTTP 请求行（POST）"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "HEAD ",
+      "kind": "text",
+      "description": "HTTP 请求行（HEAD）"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "PUT ",
+      "kind": "text",
+      "description": "HTTP 请求行（PUT）"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "DELETE ",
+      "kind": "text",
+      "description": "HTTP 请求行（DELETE）"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "CONNECT ",
+      "kind": "text",
+      "description": "HTTP 请求行（CONNECT）"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "downlink",
+      "offset": 0,
+      "pattern": "HTTP/1.",
+      "kind": "text",
+      "description": "HTTP 响应行"
+    },
+    {
+      "protocol": "HTTP",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "Host: ",
+      "kind": "contains",
+      "description": "HTTP 请求头 Host 字段"
+    },
+    {
+      "protocol": "TLS",
+      "direction": "any",
+      "offset": 0,
+      "pattern": "1603",
+      "kind": "hex",
+      "description": "TLS 握手记录（ContentType=22，Version=3.x）"
+    },
+    {
+      "protocol": "SSH",
+      "direction": "any",
+      "offset": 0,
+      "pattern": "SSH-2.0",
+      "kind": "text",
+      "description": "SSH 版本串 SSH-2.0"
+    },
+    {
+      "protocol": "SSH",
+      "direction": "any",
+      "offset": 0,
+      "pattern": "SSH-1.99",
+      "kind": "text",
+      "description": "SSH 兼容版本串 SSH-1.99"
+    },
+    {
+      "protocol": "BitTorrent",
+      "direction": "any",
+      "offset": 1,
+      "pattern": "BitTorrent protocol",
+      "kind": "text",
+      "description": "BitTorrent 握手协议名"
+    },
+    {
+      "protocol": "DNS",
+      "direction": "uplink",
+      "offset": 0,
+      "pattern": "",
+      "kind": "dns_query",
+      "description": "DNS 查询（Header + QNAME 结构校验）"
+    }
+  ]
+}
