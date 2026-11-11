@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from nps.decode import tls
 from nps.decode.fields import Decoded, Field
 from nps.decode.utils import format_tcp_flags, u16, u32
 
@@ -66,6 +67,10 @@ def decode(
     if body_len:
         layer.add("TCP payload", f"{body_len} bytes", offset + data_offset, body_len)
     layers.append(layer)
+
+    # 载荷若是 TLS 记录，就在 TCP 之后追加一层；跨段的记录只解析首段
+    if body_len:
+        tls.decode(raw, offset + data_offset, body_len, layers)
 
     decoded.put(
         **{

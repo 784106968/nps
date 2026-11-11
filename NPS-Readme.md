@@ -571,6 +571,8 @@ nps/
 - [x] 至少支持：HTTP 请求行/`Host:`、TLS ClientHello、SSH `SSH-2.0-`、BitTorrent 握手、DNS 查询；
 - [x] 端口启发式初筛（标注为 `port` 置信度，不得当作确定结论）；
 - [x] 包列表与详情树展示协议标签 + 置信度来源；
+- [x] TLS 握手字段解析：记录层（ContentType/Version/Length）、ClientHello/ServerHello
+      （Random、Cipher Suites）、扩展（SNI、ALPN、supported_versions），应用数据只标注"密文"；
 - [x] 详情树字段可复制；
 - [x] 统计视图：协议分布、会话 Top N、吞吐时间线（数据与列表一致）。
 

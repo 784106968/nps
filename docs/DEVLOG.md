@@ -267,9 +267,22 @@
 3. **时间线只有 2 个数据点时柱条铺满整屏**，且峰值文字被遮挡：限制柱宽 16px、居中排布，
    绘图区顶部留 22px 给标题。
 
+### 追加（同日）：TLS 握手解析
+
+原计划外，起因是"HTTPS 到底能看到什么"这个问题。
+
+- 新增 `nps/decode/tls.py`：记录层（ContentType/Version/Length）→ 握手层
+  （ClientHello/ServerHello、Random、Cipher Suites）→ 扩展（SNI、ALPN、supported_versions）；
+- `tcp.py` 在载荷以 TLS 记录开头时追加一层；应用数据只标 `N bytes（密文）`，不尝试解密；
+- 真实抓包验证（Wi-Fi，`curl https://example.com`）：解析出 `SNI=example.com`、
+  `ALPN=http/1.1`、ClientHello → ServerHello → 3 段 Application Data；
+  同批流量里还解析出 `copilot.tencent.com` 及 `TLS 1.3` 支持列表；
+- 选中 SNI 字段时十六进制高亮偏移 117、长度 11，与字节完全对齐。
+
 ### 未完成
 
-- TLS SNI 未提取（需要解析 ClientHello 扩展），不在 P4 计划内，列为后续增强。
+- TLS 记录跨 TCP 段时只解析首段（本项目不做重组）；
+- 证书链不解析：TLS 1.3 起证书本身已加密，只有 TLS 1.2 及以下能看到明文证书。
 
 ### 次日计划（P5）
 
