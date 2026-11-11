@@ -90,6 +90,19 @@ pcap_dispatch
 会话表不依赖 `nps.decode` 的字段树：每包要做一次归表，因此单独做一次轻量解析
 （IPv4/IPv6 头 + L4 端口），比构树快一个数量级。
 
+## DPI（P4）
+
+- 规则表 `nps/decode/dpi/signatures.json`，每条包含
+  `protocol / direction / offset / pattern / description / kind`；
+  `kind` 支持 `text`、`hex`、`dns_query`（结构化校验，避免把 DNS 响应误判为查询）。
+- 匹配对象是会话的**首上行载荷**（并补充首下行载荷用于响应识别），失败再回落到端口启发式。
+- 置信度只有两档：`dpi`（命中签名）与 `port`（仅端口）。端口先给初判，命中签名后升级为 `dpi`，
+  一旦是 `dpi` 就不再重算。
+- 结果挂在 `Session.app_protocol / confidence / classification_note` 上，包列表与会话列表共用；
+  显示过滤的 `protocol` 字段优先取 `app_protocol`，因此 `protocol == http` 能命中 DPI 标签。
+- 统计视图从会话表聚合（协议分布、会话 Top N），吞吐时间线由包模型按秒累加，
+  两者与列表同源，不做二次统计。
+
 ## 链路类型与头部布局（实测结论）
 
 | 场景 | datalink | L3 偏移 | 说明 |

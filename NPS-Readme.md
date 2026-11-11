@@ -567,12 +567,12 @@ nps/
 
 **任务**
 
-- [ ] `signatures.json`：`(protocol, direction, offset, pattern, description)`；
-- [ ] 至少支持：HTTP 请求行/`Host:`、TLS ClientHello、SSH `SSH-2.0-`、BitTorrent 握手、DNS 查询；
-- [ ] 端口启发式初筛（标注为 `port` 置信度，不得当作确定结论）；
-- [ ] 包列表与详情树展示协议标签 + 置信度来源；
-- [ ] 详情树字段可复制；
-- [ ] 统计视图：协议分布、会话 Top N、吞吐时间线（数据与列表一致）。
+- [x] `signatures.json`：`(protocol, direction, offset, pattern, description)`；
+- [x] 至少支持：HTTP 请求行/`Host:`、TLS ClientHello、SSH `SSH-2.0-`、BitTorrent 握手、DNS 查询；
+- [x] 端口启发式初筛（标注为 `port` 置信度，不得当作确定结论）；
+- [x] 包列表与详情树展示协议标签 + 置信度来源；
+- [x] 详情树字段可复制；
+- [x] 统计视图：协议分布、会话 Top N、吞吐时间线（数据与列表一致）。
 
 **验收（量化）**
 

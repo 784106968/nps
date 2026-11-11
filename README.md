@@ -16,7 +16,7 @@
 | P1 | Wireshark 风格三窗格 GUI、7 种协议解析、十六进制联动、PCAP 导出 | **完成**（实时落盘顺延 P3） |
 | P2 | 显示过滤（`ip.src`、`tcp.port`、`icmp.type`、`protocol`、逻辑运算、CIDR） | **完成**（HTTP 语义过滤待 P4 DPI） |
 | P3 | 会话表与流追踪（五元组合并、老化、同流高亮、会话面板） | **完成**（进程归属待后续） |
-| P4 | DPI 协议识别、详情树、统计视图 | 未开始 |
+| P4 | DPI 协议识别（HTTP/TLS/SSH/DNS/BitTorrent）、字段复制、统计视图 | **完成** |
 | P5 | 流时序图、性能基线 | 未开始 |
 
 完整计划、验收标准与日程见 [`NPS-Readme.md`](NPS-Readme.md)，逐日记录见
