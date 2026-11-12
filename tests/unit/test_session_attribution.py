@@ -87,7 +87,7 @@ class FakeResolver:
 class SequenceResolver:
     status_text = "序列解析器"
 
-    def __init__(self, infos: list[ProcessInfo]) -> None:
+    def __init__(self, infos: list[ProcessInfo | None]) -> None:
         self.infos = infos
         self.calls = 0
 
@@ -168,3 +168,29 @@ def test_null_resolver_is_default() -> None:
     session = table.add(tcp_packet(CLIENT, SERVER, 0x02))
     assert session is not None
     assert session.pid is None
+
+
+def test_unattributed_session_retries_after_one_second() -> None:
+    resolver = SequenceResolver([None, ProcessInfo(9, "late.exe", "exact")])
+    table = SessionTable(resolver=resolver)
+
+    session = table.add(tcp_packet(CLIENT, SERVER, 0x10, ts=1_000.0))
+    assert session is not None
+    assert session.process_confidence is None
+
+    table.add(tcp_packet(CLIENT, SERVER, 0x10, ts=1_000.3))
+    assert session.process_confidence is None  # 未到 1 秒，不重复查询
+
+    table.add(tcp_packet(CLIENT, SERVER, 0x10, ts=1_001.2))
+    assert session.pid == 9
+    assert session.process_confidence == "exact"
+
+
+def test_multicast_traffic_is_not_attributed() -> None:
+    resolver = FakeResolver(ProcessInfo(1, "x.exe", "exact"))
+    table = SessionTable(resolver=resolver)
+
+    session = table.add(udp_packet(("10.0.0.1", 5353), ("224.0.0.251", 5353)))
+    assert session is not None
+    assert session.pid is None
+    assert resolver.calls == 0

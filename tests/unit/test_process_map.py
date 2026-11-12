@@ -76,13 +76,33 @@ def test_port_fallback_for_listener() -> None:
 def test_port_conflict_is_ambiguous() -> None:
     table = ProcessTable()
     table.add(6, ("192.168.1.5", 8080), ("0.0.0.0", 0), 333)
-    table.add(6, ("10.0.0.2", 8080), ("0.0.0.0", 0), 444)
+    table.add(6, ("192.168.1.5", 8080), ("0.0.0.0", 0), 444)
 
     info = table.match(("10.0.0.9", 51000), ("192.168.1.5", 8080), 6)
     assert info is not None
     assert info.pid is None
     assert info.confidence == "ambiguous"
     assert "共用" in info.note
+
+
+def test_zero_pid_rows_are_ignored() -> None:
+    # TIME_WAIT 等状态没有 owner，PID 为 0；归到 System Idle 属于误归属
+    table = ProcessTable()
+    table.add(6, ("192.168.1.5", 50000), ("93.184.216.34", 443), 0)
+
+    assert len(table) == 0
+    assert table.match(("192.168.1.5", 50000), ("93.184.216.34", 443), 6) is None
+
+
+def test_wildcard_listener_port_fallback() -> None:
+    table = ProcessTable()
+    table.add(6, ("10.0.0.5", 50000), ("93.184.216.34", 443), 111)  # 注册本机地址
+    table.add(6, ("0.0.0.0", 8080), ("0.0.0.0", 0), 222)  # 通配监听
+
+    info = table.match(("8.8.8.8", 51000), ("10.0.0.5", 8080), 6)
+    assert info is not None
+    assert info.pid == 222
+    assert info.confidence == "port"
 
 
 def test_unknown_endpoints_return_none() -> None:
