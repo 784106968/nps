@@ -98,6 +98,7 @@ class MainWindow(QMainWindow):
         self._paused = False
         self._flow_stream_id: int | None = None
         self._flow_signature: tuple[int, int] | None = None
+        self._filter_session_version = -1
         self.process_resolver = create_resolver()
 
         self.packet_model = PacketTableModel(MODEL_CAPACITY, self, resolver=self.process_resolver)
@@ -372,11 +373,15 @@ class MainWindow(QMainWindow):
         backend, self._backend = self._backend, None
         if backend is not None:
             backend.close()
-        remaining = self._queue.drain(DRAIN_CATCH_UP)
-        if remaining:
+        while True:
+            remaining = self._queue.drain(DRAIN_CATCH_UP)
+            if not remaining:
+                break
             self.packet_model.append_batch(remaining)
-            if self.autoscroll.isChecked():
-                self.table.scrollToBottom()
+        if self.autoscroll.isChecked():
+            self.table.scrollToBottom()
+        # 清掉停止瞬间仍在队列里的残留，避免与下一次捕获混排
+        self._queue.reset()
         self._set_running(False)
         self._update_status("已停止")
 
@@ -390,6 +395,7 @@ class MainWindow(QMainWindow):
         )
 
     def clear_packets(self) -> None:
+        self._queue.reset()
         self.packet_model.clear()
         self.detail_tree.clear_data()
         self.hex_view.clear()
@@ -485,6 +491,12 @@ class MainWindow(QMainWindow):
         removed = self.packet_model.session_table.expire(now)
         self.session_model.refresh()
         self.stats_view.update_from(self.packet_model)
+        # DPI 与进程归属在首载荷/重试后才更新，过滤器需要跟着重算，
+        # 否则 protocol/process.* 的结果会停留在"包插入那一刻"
+        version = self.packet_model.session_table.version
+        if self.filter_proxy.active and version != self._filter_session_version:
+            self.filter_proxy.invalidate()
+            self._filter_session_version = version
         if self._flow_stream_id is not None:
             session = self.packet_model.session_table.get(self._flow_stream_id)
             if session is not None:
@@ -552,6 +564,7 @@ class MainWindow(QMainWindow):
 
         self.display_filter_edit.setStyleSheet("")
         self.filter_error_label.setText("")
+        self._filter_session_version = self.packet_model.session_table.version
         if not self.table.currentIndex().isValid():
             self.detail_tree.clear_data()
             self.hex_view.clear()

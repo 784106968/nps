@@ -114,6 +114,7 @@ class FlowView(QWidget):
         self._tip_key: tuple[int, int] | None = None
         self.setMinimumHeight(180)
         self.setMouseTracking(True)
+        self.setFocusPolicy(Qt.FocusPolicy.StrongFocus)
         self.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Expanding)
 
     # ---- 数据接口 ----
