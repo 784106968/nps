@@ -89,12 +89,19 @@ sudo setcap cap_net_raw,cap_net_admin=eip $(readlink -f $(which python3))
 ```text
 nps/
 ├── capture/     ctypes 绑定、捕获后端、设备枚举
-├── core/        包模型、有界队列、统计
-└── __main__.py  命令行入口
-docs/            架构、概念、开发与过滤语法文档
-scripts/         probe_pcap.py 等辅助脚本
-tests/           单元测试与合成 PCAP
+├── core/        包模型、有界队列、会话表、进程归属
+├── decode/      以太网 / IP / TCP / UDP / ICMP / TLS / DPI
+├── filters/     显示过滤词法、语法与求值
+├── gui/         三窗格、会话、统计、流时序图
+├── pcapio/      PCAP 读写
+└── __main__.py  CLI / GUI 入口
+docs/            架构、概念、开发、性能与演示文档
+scripts/         probe_pcap.py、probe_process.py、bench.py 等
+tests/           单元、界面、集成测试与合成 PCAP
 ```
+
+> GUI 目前只用于实时抓包；打开离线 PCAP 请使用
+> `python -m nps --cli --offline <文件>`。
 
 ## 文档
 
