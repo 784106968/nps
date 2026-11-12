@@ -47,6 +47,8 @@ class PacketTableModel(QAbstractTableModel):
         self.session_table = SessionTable()
         self._highlight_stream: int | None = None
         self._timeline: dict[int, int] = {}
+        # stream_id → 行号，供流时序图按流取包；容量淘汰时整体失效重建
+        self._stream_rows: dict[int, list[int]] = {}
 
     # ---- Qt 接口 ----
     def rowCount(self, parent: QModelIndex = _NO_PARENT) -> int:  # noqa: N802
@@ -112,10 +114,15 @@ class PacketTableModel(QAbstractTableModel):
             for packet in removed:
                 self._decoded.pop(packet.index, None)
             self.endRemoveRows()
+            # 行号整体前移，旧索引全部失效
+            self._stream_rows.clear()
 
         first = len(self._store)
         self.beginInsertRows(QModelIndex(), first, first + len(packets) - 1)
         self._store.extend(packets)
+        for offset, packet in enumerate(packets):
+            if packet.stream_id is not None:
+                self._stream_rows.setdefault(packet.stream_id, []).append(first + offset)
         self.endInsertRows()
 
     def clear(self) -> None:
@@ -125,6 +132,7 @@ class PacketTableModel(QAbstractTableModel):
         self.session_table.clear()
         self._highlight_stream = None
         self._timeline.clear()
+        self._stream_rows.clear()
         self.endResetModel()
 
     def set_highlight_stream(self, stream_id: int | None) -> None:
@@ -158,6 +166,22 @@ class PacketTableModel(QAbstractTableModel):
     def packets(self) -> list[Packet]:
         """快照当前表内的全部包（导出用）。"""
         return [self._store[i] for i in range(len(self._store))]
+
+    def packets_of_stream(self, stream_id: int) -> list[Packet]:
+        """按流取当前表内的包，供流时序图使用。
+
+        维护 ``stream_id → 行号`` 索引后是 O(k)（k 为该流包数）；
+        索引缺失时回退到一次线性扫描，保证功能不受影响。
+        """
+        rows = self._stream_rows.get(stream_id)
+        if rows is None:
+            return [
+                self._store[i]
+                for i in range(len(self._store))
+                if self._store[i].stream_id == stream_id
+            ]
+        total = len(self._store)
+        return [self._store[row] for row in rows if 0 <= row < total]
 
     def session_for(self, packet: Packet):
         if packet.stream_id is None:
