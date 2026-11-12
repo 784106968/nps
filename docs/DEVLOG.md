@@ -396,6 +396,9 @@
    置信度固定为 `port`；文档与 UI 同步标注，不表述为确定结论。
 3. **快照刷新可能落在 GUI 线程**：TTL 2 s + 只在会话边界触发，实测单次 3–4 ms，
    不会打破 16 ms 帧预算；若后续连接数显著增长，可移到后台线程（已留 `refresh(force)` 接口）。
+4. **Python 3.12 下 IPv6 包让会话表抛异常**：`ipaddress.IPv6Address(memoryview)`
+   在 3.12 会把 memoryview 当字符串解析，抛 `AddressValueError`；原 Python 3.14 环境未暴露，
+   重装 3.12 后由真实抓包发现。改为显式 `bytes(...)`，并补 IPv6 会话回归测试（全量 224 条）。
 
 ### 未完成
 
