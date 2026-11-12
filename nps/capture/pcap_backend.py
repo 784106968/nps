@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import ctypes
+import itertools
 import threading
 from ctypes import POINTER, byref, c_ubyte, c_uint, create_string_buffer
 
@@ -37,6 +38,8 @@ CAPTURE_CALLBACK = ctypes.CFUNCTYPE(
 
 DISPATCH_BATCH = 64
 STOP_TIMEOUT_S = 2.0
+# 进程级单调序号：停止后重新开始也要继续递增，否则模型按 index 缓存的解析结果会串包
+_PACKET_SEQ = itertools.count(1)
 
 
 class PcapBackend:
@@ -216,13 +219,18 @@ class PcapBackend:
         self._path = None
 
     # ---- 回调 ----
+    @staticmethod
+    def _next_index() -> int:
+        """进程级单调序号，保证跨后端实例（停止后再开始）不重复。"""
+        return next(_PACKET_SEQ)
+
     def _on_packet(self, user: object, header: object, data: object) -> None:
         try:
             hdr = header.contents  # type: ignore[attr-defined]
             raw = ctypes.string_at(data, hdr.caplen)
             self._packet_index += 1
             packet = Packet(
-                index=self._packet_index,
+                index=self._next_index(),
                 ts=hdr.ts.tv_sec + hdr.ts.tv_usec / 1_000_000.0,
                 caplen=int(hdr.caplen),
                 wirelen=int(hdr.len),

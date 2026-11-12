@@ -17,6 +17,7 @@
 from __future__ import annotations
 
 import ctypes
+import ipaddress
 import socket
 import struct
 import sys
@@ -31,6 +32,7 @@ DEFAULT_TTL = 2.0
 NAME_TTL = 30.0
 FORCE_REFRESH_INTERVAL = 0.5
 MAX_TABLE_SIZE = 16 * 1024 * 1024
+ERROR_INSUFFICIENT_BUFFER = 122
 
 AF_INET = 2
 AF_INET6 = 23
@@ -166,7 +168,9 @@ def _port(value: int) -> int:
 
 
 def _ipv6(raw: bytes) -> str:
-    return socket.inet_ntop(socket.AF_INET6, raw)
+    # 与 session/decode 侧统一用 ipaddress 规范化；socket.inet_ntop 会把
+    # v4-mapped 地址写成 ::ffff:192.168.1.5，而包侧是 ::ffff:c0a8:105，导致永不匹配
+    return str(ipaddress.IPv6Address(bytes(raw)))
 
 
 def _query_table(af: int, table_class: int, function: str) -> bytes:
@@ -186,17 +190,21 @@ def _query_table(af: int, table_class: int, function: str) -> bytes:
     ]
     getter.restype = ctypes.c_ulong
 
-    size = ctypes.c_ulong(0)
-    getter(None, ctypes.byref(size), False, af, table_class, 0)
-    if size.value == 0:
-        return b""
-    if size.value > MAX_TABLE_SIZE:
-        raise OSError(f"{function} 返回异常表大小 {size.value}")
-    buffer = ctypes.create_string_buffer(size.value)
-    code = getter(buffer, ctypes.byref(size), False, af, table_class, 0)
-    if code != 0:
-        raise OSError(f"{function} 失败，错误码 {code}")
-    return bytes(buffer.raw[: size.value])
+    for _ in range(3):
+        size = ctypes.c_ulong(0)
+        getter(None, ctypes.byref(size), False, af, table_class, 0)
+        if size.value == 0:
+            return b""
+        if size.value > MAX_TABLE_SIZE:
+            raise OSError(f"{function} 返回异常表大小 {size.value}")
+        buffer = ctypes.create_string_buffer(size.value)
+        code = getter(buffer, ctypes.byref(size), False, af, table_class, 0)
+        if code == 0:
+            return bytes(buffer.raw[: size.value])
+        if code != ERROR_INSUFFICIENT_BUFFER:
+            raise OSError(f"{function} 失败，错误码 {code}")
+        # 表在两次调用之间变大：重新取 size 再试
+    raise OSError(f"{function} 重试后仍返回空间不足")
 
 
 def _windows_table() -> ProcessTable:
@@ -260,11 +268,21 @@ def _windows_table() -> ProcessTable:
 
 
 def _windows_process_name(pid: int) -> str:
-    if pid == 0:
-        return "System Idle Process"
     if pid == 4:
         return "System"
     kernel32 = ctypes.WinDLL("kernel32.dll", use_last_error=True)
+    kernel32.OpenProcess.argtypes = [ctypes.c_uint32, ctypes.c_int, ctypes.c_uint32]
+    kernel32.OpenProcess.restype = ctypes.c_void_p
+    kernel32.QueryFullProcessImageNameW.argtypes = [
+        ctypes.c_void_p,
+        ctypes.c_uint32,
+        ctypes.c_wchar_p,
+        ctypes.POINTER(ctypes.c_ulong),
+    ]
+    kernel32.QueryFullProcessImageNameW.restype = ctypes.c_int
+    kernel32.CloseHandle.argtypes = [ctypes.c_void_p]
+    kernel32.CloseHandle.restype = ctypes.c_int
+
     handle = kernel32.OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, False, pid)
     if not handle:
         return ""
