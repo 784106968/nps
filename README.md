@@ -17,7 +17,7 @@
 | P2 | 显示过滤（`ip.src`、`tcp.port`、`icmp.type`、`protocol`、逻辑运算、CIDR） | **完成**（HTTP 语义过滤待 P4 DPI） |
 | P3 | 会话表与流追踪（五元组合并、老化、同流高亮、会话面板） | **完成**（进程归属待后续） |
 | P4 | DPI 协议识别（HTTP/TLS/SSH/DNS/BitTorrent）、TLS 握手解析（SNI/ALPN）、字段复制、统计视图 | **完成** |
-| P5 | 流时序图、性能基线 | 未开始 |
+| P5 | 流时序图（缩放/聚合）、性能基线、五分钟演示脚本 | **完成** |
 
 完整计划、验收标准与日程见 [`NPS-Readme.md`](NPS-Readme.md)，逐日记录见
 [`docs/DEVLOG.md`](docs/DEVLOG.md)。
@@ -101,6 +101,8 @@ tests/           单元测试与合成 PCAP
 - [`docs/CONCEPTS.md`](docs/CONCEPTS.md)：OSI 分层、抓包点与加密边界
 - [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)：分层职责与数据流
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)：环境、权限与故障排查
+- [`docs/PERF.md`](docs/PERF.md)：1k/10k/100k 包性能基线与验收对比
+- [`docs/DEMO.md`](docs/DEMO.md)：五分钟演示脚本
 - [`docs/DEVLOG.md`](docs/DEVLOG.md)：每日开发记录
 
 ## 许可证
