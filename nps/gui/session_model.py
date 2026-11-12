@@ -36,11 +36,21 @@ class SessionTableModel(QAbstractTableModel):
         if role == Qt.ItemDataRole.ForegroundRole and column == 1:
             return PROTOCOL_COLORS.get(session.app_protocol or session.protocol)
         if role == Qt.ItemDataRole.ToolTipRole:
+            lines = [session.label]
             if session.app_protocol:
                 source = "DPI 识别" if session.confidence == "dpi" else "端口推断"
-                note = session.classification_note
-                return f"{session.label}\n{session.app_protocol}（{source}：{note}）"
-            return session.label
+                lines.append(f"{session.app_protocol}（{source}：{session.classification_note}）")
+            if session.process_confidence:
+                label = {
+                    "exact": "四元组精确匹配",
+                    "port": "仅端口推断",
+                    "ambiguous": "端口冲突",
+                }.get(session.process_confidence, session.process_confidence)
+                process = session.process_name or "—"
+                lines.append(f"进程: {process}（PID {session.pid}，{label}）")
+                if session.process_note:
+                    lines.append(session.process_note)
+            return "\n".join(lines)
         if role == Qt.ItemDataRole.TextAlignmentRole and column in {0, 3, 4, 5}:
             return int(Qt.AlignmentFlag.AlignRight | Qt.AlignmentFlag.AlignVCenter)
         return None
@@ -98,4 +108,8 @@ class SessionTableModel(QAbstractTableModel):
             return {"active": "进行中", "closing": "关闭中", "closed": "已关闭"}.get(
                 session.state, session.state
             )
-        return "—" if session.pid is None else str(session.pid)
+        if session.pid is None:
+            return "端口冲突" if session.process_confidence == "ambiguous" else "—"
+        if session.process_name:
+            return f"{session.process_name} ({session.pid})"
+        return str(session.pid)

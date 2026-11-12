@@ -17,6 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from nps.core.packet import Packet
+from nps.core.process_map import NullResolver, ProcessResolver
 from nps.decode.dpi.matcher import CONFIDENCE_DPI, classify
 
 TCP = 6
@@ -61,7 +62,10 @@ class Session:
     first_uplink_payload: bytes | None = None
     first_downlink_payload: bytes | None = None
     state: str = "active"
-    pid: int | None = None  # 进程归属：本期恒为 None，见 ProcessResolver
+    pid: int | None = None
+    process_name: str | None = None
+    process_confidence: str | None = None  # "exact" | "port" | "ambiguous"
+    process_note: str = ""
     app_protocol: str | None = None
     confidence: str | None = None
     classification_note: str = ""
@@ -179,10 +183,15 @@ parse_flow = _parse_flow
 class SessionTable:
     """按 LRU 淘汰的会话表。"""
 
-    def __init__(self, capacity: int = 20_000) -> None:
+    def __init__(
+        self,
+        capacity: int = 20_000,
+        resolver: ProcessResolver | None = None,
+    ) -> None:
         if capacity <= 0:
             raise ValueError("capacity 必须为正整数")
         self._capacity = capacity
+        self._resolver = resolver or NullResolver()
         self._sessions: OrderedDict[tuple[object, ...], Session] = OrderedDict()
         self._by_id: dict[int, Session] = {}
         self._next_id = 1
@@ -241,6 +250,7 @@ class SessionTable:
         key = (flow.proto, first, second)
 
         session = self._sessions.get(key)
+        created = session is None
         if session is None:
             session = Session(
                 stream_id=self._next_id,
@@ -264,13 +274,34 @@ class SessionTable:
             self._sessions.move_to_end(key)
             session.last_ts = max(session.last_ts, packet.ts)
 
-        self._absorb(session, packet, flow, endpoint_src)
+        new_payload = self._absorb(session, packet, flow, endpoint_src)
+        if created or (new_payload and session.process_confidence != "exact"):
+            # 服务端 accept 后连接会从 listener 转移到 worker，首载荷时补一次精确归属
+            self._attribute(session, endpoint_src, endpoint_dst, flow.proto)
         packet.stream_id = session.stream_id
         self._version += 1
         self._snapshot = None
         return session
 
-    def _absorb(self, session: Session, packet: Packet, flow: FlowInfo, endpoint_src) -> None:
+    def _attribute(
+        self,
+        session: Session,
+        src: tuple[str, int],
+        dst: tuple[str, int],
+        proto: int,
+    ) -> None:
+        try:
+            info = self._resolver.resolve(src, dst, proto)
+        except Exception:  # 归属失败不得影响会话主流程
+            return
+        if info is None:
+            return
+        session.pid = info.pid
+        session.process_name = info.name or None
+        session.process_confidence = info.confidence
+        session.process_note = info.note
+
+    def _absorb(self, session: Session, packet: Packet, flow: FlowInfo, endpoint_src) -> bool:
         up = endpoint_src == session.initiator
         if up:
             session.packets_up += 1
@@ -312,6 +343,7 @@ class SessionTable:
                 session.app_protocol = app
                 session.confidence = confidence
                 session.classification_note = note
+        return new_payload
 
     def _enforce_capacity(self) -> None:
         while len(self._sessions) > self._capacity:
