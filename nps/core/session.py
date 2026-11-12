@@ -17,6 +17,7 @@ from collections import OrderedDict
 from dataclasses import dataclass, field
 
 from nps.core.packet import Packet
+from nps.core.process_map import NullResolver, ProcessResolver
 from nps.decode.dpi.matcher import CONFIDENCE_DPI, classify
 
 TCP = 6
@@ -29,6 +30,7 @@ PROTOCOL_NAMES = {TCP: "TCP", UDP: "UDP", ICMP: "ICMP", ICMPV6: "ICMPv6"}
 DEFAULT_TIMEOUTS = {TCP: 120.0, UDP: 60.0, ICMP: 30.0, ICMPV6: 30.0}
 OTHER_TIMEOUT = 60.0
 MAX_PAYLOAD = 512
+PROCESS_RETRY_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -61,7 +63,11 @@ class Session:
     first_uplink_payload: bytes | None = None
     first_downlink_payload: bytes | None = None
     state: str = "active"
-    pid: int | None = None  # 进程归属：本期恒为 None，见 ProcessResolver
+    pid: int | None = None
+    process_name: str | None = None
+    process_confidence: str | None = None  # "exact" | "port" | "ambiguous"
+    process_note: str = ""
+    process_attempt_ts: float = 0.0
     app_protocol: str | None = None
     confidence: str | None = None
     classification_note: str = ""
@@ -95,6 +101,19 @@ class Session:
         return f"{client_ip}:{client_port} ↔ {server_ip}:{server_port}"
 
 
+def _is_non_unicast(ip: str) -> bool:
+    """组播/广播/未指定地址不可能是本机单播 socket，不参与归属。"""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if address.is_multicast or address.is_unspecified:
+        return True
+    return isinstance(address, ipaddress.IPv4Address) and address == ipaddress.IPv4Address(
+        "255.255.255.255"
+    )
+
+
 def _parse_flow(packet: Packet) -> FlowInfo | None:
     raw = packet.raw
     offset = packet.network_offset
@@ -117,8 +136,9 @@ def _parse_flow(packet: Packet) -> FlowInfo | None:
             return None
         proto = raw[offset + 6]
         payload_len = int.from_bytes(raw[offset + 4 : offset + 6], "big")
-        src = str(ipaddress.IPv6Address(raw[offset + 8 : offset + 24]))
-        dst = str(ipaddress.IPv6Address(raw[offset + 24 : offset + 40]))
+        # Python 3.12 的 IPv6Address 只接受 bytes，memoryview 会被当成字符串解析
+        src = str(ipaddress.IPv6Address(bytes(raw[offset + 8 : offset + 24])))
+        dst = str(ipaddress.IPv6Address(bytes(raw[offset + 24 : offset + 40])))
         l4 = offset + 40
         segment_end = min(len(raw), l4 + payload_len)
     else:
@@ -179,10 +199,15 @@ parse_flow = _parse_flow
 class SessionTable:
     """按 LRU 淘汰的会话表。"""
 
-    def __init__(self, capacity: int = 20_000) -> None:
+    def __init__(
+        self,
+        capacity: int = 20_000,
+        resolver: ProcessResolver | None = None,
+    ) -> None:
         if capacity <= 0:
             raise ValueError("capacity 必须为正整数")
         self._capacity = capacity
+        self._resolver = resolver or NullResolver()
         self._sessions: OrderedDict[tuple[object, ...], Session] = OrderedDict()
         self._by_id: dict[int, Session] = {}
         self._next_id = 1
@@ -241,6 +266,7 @@ class SessionTable:
         key = (flow.proto, first, second)
 
         session = self._sessions.get(key)
+        created = session is None
         if session is None:
             session = Session(
                 stream_id=self._next_id,
@@ -264,13 +290,43 @@ class SessionTable:
             self._sessions.move_to_end(key)
             session.last_ts = max(session.last_ts, packet.ts)
 
-        self._absorb(session, packet, flow, endpoint_src)
+        new_payload = self._absorb(session, packet, flow, endpoint_src)
+        retry = (
+            session.process_confidence != "exact"
+            and packet.ts - session.process_attempt_ts >= PROCESS_RETRY_SECONDS
+        )
+        if created or (new_payload and session.process_confidence != "exact") or retry:
+            # 服务端 accept 后连接会从 listener 转移到 worker，首载荷时补一次精确归属；
+            # 未命中时每秒重试一次，避免快照 TTL 窗口内建立的连接永久为空。
+            self._attribute(session, endpoint_src, endpoint_dst, flow.proto, packet.ts)
         packet.stream_id = session.stream_id
         self._version += 1
         self._snapshot = None
         return session
 
-    def _absorb(self, session: Session, packet: Packet, flow: FlowInfo, endpoint_src) -> None:
+    def _attribute(
+        self,
+        session: Session,
+        src: tuple[str, int],
+        dst: tuple[str, int],
+        proto: int,
+        ts: float,
+    ) -> None:
+        session.process_attempt_ts = ts
+        if _is_non_unicast(src[0]) or _is_non_unicast(dst[0]):
+            return
+        try:
+            info = self._resolver.resolve(src, dst, proto)
+        except Exception:  # 归属失败不得影响会话主流程
+            return
+        if info is None:
+            return
+        session.pid = info.pid
+        session.process_name = info.name or None
+        session.process_confidence = info.confidence
+        session.process_note = info.note
+
+    def _absorb(self, session: Session, packet: Packet, flow: FlowInfo, endpoint_src) -> bool:
         up = endpoint_src == session.initiator
         if up:
             session.packets_up += 1
@@ -312,6 +368,7 @@ class SessionTable:
                 session.app_protocol = app
                 session.confidence = confidence
                 session.classification_note = note
+        return new_payload
 
     def _enforce_capacity(self) -> None:
         while len(self._sessions) > self._capacity:

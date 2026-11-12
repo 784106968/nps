@@ -32,7 +32,7 @@
 | 协议过滤能力（HTTP / TCP / UDP / IPv4 / IPv6 / ICMP + 逻辑演算） | 必须 | P0（BPF）、P2（显示过滤） | §3.4、§5.3 |
 | 完善 NPA（会话、解析树、DPI、统计） | 加分，决定分数上限 | P3、P4 | §5.4–§5.5 |
 | 流追踪：基于 IP + Port 的 TCP 流 | 加分 | P3 | §3.5、§5.4 |
-| 流追踪：某进程产生的所有 TCP 流 | 加分 | 本期不实现，仅设计预留 | §3.6、§13 |
+| 流追踪：某进程产生的所有 TCP 流 | 加分 | P6（Windows 实现，Linux 搁置） | §3.6、§5.7、§13 |
 | 基于 Wireshark 二次开发 | 未采用 | — | §1.1 说明取舍 |
 
 ### 0.3 优先级铁律
@@ -356,6 +356,8 @@ value      := integer | "quoted string" | identifier | cidr
 
 > `ProcessResolver` 本期只有接口定义与 `NullResolver`（恒返回 None），**不实现任何 OS 调用**。
 > 会话视图可保留一列"进程"，值为"—"。
+> 完整需求、判定规则、验收标准与工作量评估见
+> [`docs/PROCESS_ATTRIBUTION.md`](docs/PROCESS_ATTRIBUTION.md)。
 
 ---
 
@@ -596,6 +598,32 @@ nps/
 - 详情树展开 ≤ 100 ms；
 - 性能表格归档，与 §5.2 阈值对比结论明确。
 
+### 5.7 P6：进程归属（Windows 优先，2026-11-12 起）
+
+**范围**：把本机 TCP/UDP 会话归属到产生它的进程；Linux 方案保留但暂不实现。
+完整需求与验收见 [`docs/PROCESS_ATTRIBUTION.md`](docs/PROCESS_ATTRIBUTION.md)。
+
+**任务**
+
+- [x] `ProcessTable` 快照与匹配规则（四元组优先、端口回退、地址冲突标记 ambiguous）；
+- [x] Windows `GetExtendedTcpTable` / `GetExtendedUdpTable`（ctypes，零第三方依赖）；
+- [x] 进程名 `QueryFullProcessImageNameW`，失败时仅显示 PID；
+- [x] 快照 TTL（2 s）与进程名缓存（30 s），只在会话创建/首载荷查询；
+- [x] `Session` 增加 `process_name / process_confidence / process_note`；
+- [x] 会话面板「进程」列、tooltip 置信度与备注、详情树进程节点；
+- [x] 显示过滤 `process.pid` / `process.name`；
+- [x] `scripts/probe_process.py` 自检；
+- [x] 单元测试（匹配规则/缓存/降级/过滤）+ Windows 回环真实连接集成测试；
+- [ ] Linux `/proc` 实现（搁置，后续单独立项）。
+
+**验收（量化）**
+
+- 本机回环 TCP 出站/服务端连接归属 PID 正确率 100%（集成测试覆盖）；
+- 端口冲突时不误归属（`ambiguous`，PID 为空）；
+- 无权限/API 异常时降级为空实现，不阻塞抓包；
+- 5,000 pps 抓包下进程归属不增加队列丢弃（查询只在会话边界触发）；
+- 10k 连接快照读取 ≤ 30 ms（本机实测 367 条约 3–4 ms）。
+
 ---
 
 ## 6. GitHub 过程留痕规范（评分可见项）
@@ -787,7 +815,10 @@ pytest -m "not requires_npcap"
 
 - **不做完整 TCP 重组**：流时序图以包为粒度，不承诺应用层消息边界；需要时再引入独立重组模块（乱序、重传、重叠片段）。
 - **不做 TLS 解密**：加密边界不可逾越。Thor 类工具依赖终端安装根证书并作为中间人，本质是端点解密而非"破解传输"；本项目明确不提供该能力，只提取可见元数据（如 SNI）。
-- **不做进程级流量归属**：`Session.pid` 与 `ProcessResolver` 仅为接口占位，UI 显示"—"。若后续实现：Windows 走 `GetExtendedTcpTable`，Linux 走 `sock_diag` + `/proc/<pid>/fd` inode 匹配；需处理权限、端口复用、进程退出与 IPv6，属于独立工时（估 1–1.5 天）。
+- **进程级流量归属**：P6 已实现 Windows 版本（`GetExtendedTcpTable` / `GetExtendedUdpTable`），
+  归属结果带 `exact` / `port` / `ambiguous` 置信度；Linux 的 `sock_diag` + `/proc/<pid>/fd`
+  方案保留在需求文档中，**暂不实现**。已知边界：仅本机进程、离线 PCAP 无归属、
+  代理/容器可能归属到宿主进程、对端主机进程不可见。
 - **DPI 只提高置信度**：端口启发式必须标注为 `port`，不得表述为确定结论。
 - **无线监控模式**与有线混杂模式机制不同，需单独文档化，本期不实现。
 - 后续可选方向：离线流式解析、解析器插件化、更多应用层协议、零拷贝采集（AF_PACKET TPACKET_V3 / PF_RING 不属于本期范围）。

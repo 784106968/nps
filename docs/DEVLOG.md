@@ -351,3 +351,88 @@
 - 全量回归（预计 195 条）与 `ruff check`/`format --check`；
 - 按 `NPS-Readme.md` §7 生成源码压缩包、`SHA256SUMS.txt` 与 `BUILD.md`；
 - 用 `docs/DEMO.md` 走一遍现场流程，确认桌面快捷方式启动正常。
+
+## 2026-11-12（周四）｜P6：进程归属（Windows）
+
+### 完成
+
+- `nps/core/process_map.py`：`ProcessTable`（四元组 + 端口匹配、`local_addrs` 判定本机端）、
+  `SystemResolver`（TTL 2 s 快照、进程名缓存 30 s、异常降级）、`NullResolver`；
+- Windows ctypes 直连 `GetExtendedTcpTable` / `GetExtendedUdpTable`（IPv4 + IPv6），
+  进程名用 `QueryFullProcessImageNameW`，失败时只显示 PID；
+- `Session` 增加 `process_name / process_confidence / process_note`，
+  `SessionTable` 在**创建会话**与**首个载荷**时各查询一次，服务端 accept 后可从 listener 刷新为 worker；
+- 会话面板「进程」列显示 `name (pid)`，tooltip 给出 `exact / port / ambiguous` 依据；
+  详情树追加「进程」节点；状态栏显示归属可用性与连接数；
+- 显示过滤新增 `process.pid` / `process.name`，谓词从 `session` 取值，未复制到 `Packet`；
+- `scripts/probe_process.py` 自检；
+- 测试：匹配规则/缓存/降级/过滤 12 条、会话归属 6 条、界面 5 条、Windows 回环集成 4 条；
+- 文档：需求文档、架构、过滤语法、开发说明与 P6 计划同步。
+
+### 实测数据
+
+| 项目 | 结果 |
+| --- | --- |
+| 本机连接快照 | **367 条精确连接 / 6 个本机地址**，刷新 **4.1 ms** |
+| 回环 TCP 归属 | PID 与 `python.exe` 均正确，`confidence=exact`，刷新 2.7 ms |
+| 全量测试 | **222 passed**（新增 27 条） |
+| 静态检查 | `ruff check .` 全过 |
+
+### 关键决策
+
+1. **不枚举本机 IP**：快照自带 `local_addrs`，先判断哪一端是本机，再查四元组；
+   抓镜像口时两端都不在表内，直接放弃归属而不是猜。
+2. **进程信息只挂在会话上**：20 万包不重复存进程名；过滤谓词本就会收到 `session`，
+   因此不需要改 `Packet` 或代理模型。
+3. **回环连接归属发起方**：两端都是本机时，`(src,dst)` 正向优先，与 `Session.initiator` 语义一致；
+   服务端进程可通过端口回退看到，但默认显示发起方。
+4. **冲突宁可不归属**：同端口多进程返回 `ambiguous`，PID 为空，界面显示「端口冲突」。
+
+### 问题与修正
+
+1. **`status_text` 先判断 `_table` 导致读取失败时显示"正在初始化"**：
+   改为先看 `_note`，失败时明确显示"不可用（读取失败：…）"。
+2. **UDP 没有对端地址**：`GetExtendedUdpTable` 不提供 remote，因此 UDP 只做端口匹配，
+   置信度固定为 `port`；文档与 UI 同步标注，不表述为确定结论。
+3. **快照刷新可能落在 GUI 线程**：TTL 2 s + 只在会话边界触发，实测单次 3–4 ms，
+   不会打破 16 ms 帧预算；若后续连接数显著增长，可移到后台线程（已留 `refresh(force)` 接口）。
+4. **Python 3.12 下 IPv6 包让会话表抛异常**：`ipaddress.IPv6Address(memoryview)`
+   在 3.12 会把 memoryview 当字符串解析，抛 `AddressValueError`；原 Python 3.14 环境未暴露，
+   重装 3.12 后由真实抓包发现。改为显式 `bytes(...)`，并补 IPv6 会话回归测试（全量 224 条）。
+5. **TIME_WAIT 行 owner PID = 0 导致误归属**：`GetExtendedTcpTable` 对已关闭连接返回 PID 0，
+   端口回退会把短连接匹配成 "System Idle Process"。诊断中 149 条连接被误标，
+   `ProcessTable.add` 现直接忽略 `pid <= 0`。
+6. **快照 TTL 内新建的连接永久未归属**：会话创建与首载荷两次查询都落在同一份旧快照，
+   之后不再重试。现在 resolver 未命中时强制刷新（0.5 s 全局节流），
+   会话在未拿到 `exact` 前每秒重试一次。
+7. **端口回退未校验地址**：同端口不同绑定地址会互相顶替；`by_port` 键改为
+   `(proto, local_ip, port)`，并保留 `0.0.0.0` / `::` 通配回退。
+8. **组播/广播不参与归属**：`_is_non_unicast` 直接跳过 mDNS/SSDP/NetBIOS 目标，减少无谓查询。
+
+### 覆盖率诊断（2026-11-12 追加）
+
+在本机（Edge + 代理 `verge-mihomo` 运行中）抓 15 秒：
+
+| 口径 | 数值 |
+| --- | ---: |
+| 总会话 | 1,314 |
+| 组播/广播（他机发现协议，无法归属） | 1,161（88%） |
+| 本机单播会话 | 106 |
+| 本机单播已归属 | 45（**42.5%**） |
+| 修复前 PID 0 误归属 | 149 条（已消除） |
+
+剩余未归属以毫秒级 DNS/UDP 短连接与 CDN 短连为主：socket 在两次快照之间已关闭，
+OS 表中不再存在；另有少数受保护进程（如 PID 2096/10728）读不到名称。
+Edge 的流量在 Wi-Fi 上表现为 `verge-mihomo.exe` 的连接，因为浏览器走系统代理，
+Edge ↔ 代理之间是回环连接，不在 Wi-Fi 抓包范围——这不是归属失败。
+
+### 未完成
+
+- Linux `/proc/net` + `/proc/<pid>/fd` 实现（按计划搁置，方案在需求文档 §4）；
+- 进程启动时间校验（PID 复用增强）、代理/容器识别、按进程统计与 CSV 导出。
+
+### 次日计划
+
+- P6 分支提交、PR 与 CI 回归；
+- 现场用浏览器/`curl` 验证进程列与 `process.name` 过滤；
+- 视时间决定是否启动 Linux 版本（当前不排期）。

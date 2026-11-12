@@ -37,6 +37,8 @@ class FieldSpec:
     kind: str  # "int" | "ip" | "text"
     description: str
     getter: Getter
+    # 非空时从会话对象取属性（例如 process.pid），getter 只作占位
+    session_attr: str | None = None
 
 
 def _pair(first: object | None, second: object | None) -> frozenset[object] | None:
@@ -99,6 +101,10 @@ FIELD_SPECS: dict[str, FieldSpec] = {
     ),
     "protocol": FieldSpec(
         "text", "协议名，大小写不敏感（TCP / UDP / ICMP / ARP…）", lambda p, d: d.protocol
+    ),
+    "process.pid": FieldSpec("int", "本机进程 PID（Windows，P6 起有值）", lambda p, d: None, "pid"),
+    "process.name": FieldSpec(
+        "text", "本机进程名（Windows，大小写不敏感）", lambda p, d: None, "process_name"
     ),
     "stream_id": FieldSpec("int", "会话编号（P3 起有值）", lambda p, d: p.stream_id),
     "frame.len": FieldSpec("int", "线路长度（字节）", lambda p, d: p.wirelen),
@@ -186,7 +192,10 @@ def _build_compare(node: Compare, expression: str) -> Callable[..., bool]:
     is_protocol = node.field == "protocol"
 
     def predicate(packet: Packet, decoded: Decoded, session: object | None = None) -> bool:
-        if is_protocol:
+        if spec.session_attr is not None:
+            # 进程归属等会话级字段：不在 Packet 上复制，直接读会话
+            actual = getattr(session, spec.session_attr, None) if session is not None else None
+        elif is_protocol:
             # protocol 优先取会话上的 DPI 标签，其次是解码得到的传输层协议
             app = getattr(session, "app_protocol", None)
             actual = app or decoded.protocol

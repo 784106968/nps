@@ -42,6 +42,7 @@ from nps.capture.libpcap import PcapError
 from nps.capture.pcap_backend import PcapBackend
 from nps.core.buffer import BoundedPacketQueue
 from nps.core.packet import Packet
+from nps.core.process_map import create_resolver
 from nps.decode import Field
 from nps.filters import FilterError
 from nps.gui.detail_tree import DetailTree
@@ -97,8 +98,9 @@ class MainWindow(QMainWindow):
         self._paused = False
         self._flow_stream_id: int | None = None
         self._flow_signature: tuple[int, int] | None = None
+        self.process_resolver = create_resolver()
 
-        self.packet_model = PacketTableModel(MODEL_CAPACITY, self)
+        self.packet_model = PacketTableModel(MODEL_CAPACITY, self, resolver=self.process_resolver)
         self.filter_proxy = PacketFilterProxy(self)
         self.session_model = SessionTableModel(self.packet_model.session_table, self)
         self.stats_view = StatsView()
@@ -303,8 +305,10 @@ class MainWindow(QMainWindow):
         self.status_label = QLabel("就绪")
         self.stream_label = QLabel("流: 0")
         self.count_label = QLabel("包数: 0")
+        self.process_label = QLabel("进程归属: —")
         self.drop_label = QLabel("队列 0 / 丢弃 0 / 内核 0")
         bar.addWidget(self.status_label, 1)
+        bar.addPermanentWidget(self.process_label)
         bar.addPermanentWidget(self.stream_label)
         bar.addPermanentWidget(self.count_label)
         bar.addPermanentWidget(self.drop_label)
@@ -454,6 +458,18 @@ class MainWindow(QMainWindow):
             node = Field(session.app_protocol, f"置信度: {source}", 0, 0)
             node.add("识别依据", session.classification_note or "-", 0, 0)
             layers.append(node)
+        if session is not None and session.process_confidence:
+            name = session.process_name or "—"
+            node = Field("进程", f"{name} (PID {session.pid})", 0, 0)
+            source = {
+                "exact": "四元组精确匹配",
+                "port": "仅端口推断",
+                "ambiguous": "端口冲突",
+            }.get(session.process_confidence, session.process_confidence)
+            node.add("归属依据", source, 0, 0)
+            if session.process_note:
+                node.add("备注", session.process_note, 0, 0)
+            layers.append(node)
 
         self.detail_tree.blockSignals(True)
         self.detail_tree.show_layers(layers)
@@ -570,6 +586,7 @@ class MainWindow(QMainWindow):
                 kernel_drop = stats.drop + stats.ifdrop
             except PcapError:
                 kernel_drop = 0
+        self.process_label.setText(f"进程归属: {self.process_resolver.status_text}")
         self.drop_label.setText(
             f"队列 {self._queue.qsize()} / 丢弃 {self._queue.dropped} / 内核 {kernel_drop}"
         )

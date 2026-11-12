@@ -40,11 +40,11 @@ class PacketTableModel(QAbstractTableModel):
     花在当前不可见的包上。
     """
 
-    def __init__(self, capacity: int = DEFAULT_CAPACITY, parent=None) -> None:
+    def __init__(self, capacity: int = DEFAULT_CAPACITY, parent=None, resolver=None) -> None:
         super().__init__(parent)
         self._store = PacketStore(capacity)
         self._decoded: dict[int, Decoded] = {}
-        self.session_table = SessionTable()
+        self.session_table = SessionTable(resolver=resolver)
         self._highlight_stream: int | None = None
         self._timeline: dict[int, int] = {}
         # stream_id → 行号，供流时序图按流取包；容量淘汰时整体失效重建
