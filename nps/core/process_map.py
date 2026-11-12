@@ -29,6 +29,7 @@ from typing import Protocol, runtime_checkable
 
 DEFAULT_TTL = 2.0
 NAME_TTL = 30.0
+FORCE_REFRESH_INTERVAL = 0.5
 MAX_TABLE_SIZE = 16 * 1024 * 1024
 
 AF_INET = 2
@@ -76,7 +77,8 @@ class ProcessTable:
     """连接表快照 + 匹配规则；与平台无关，便于单元测试。"""
 
     exact: dict[tuple[int, str, int, str, int], ProcessInfo] = field(default_factory=dict)
-    by_port: dict[tuple[int, int], dict[int, ProcessInfo]] = field(default_factory=dict)
+    # 键含地址：本地端口相同但绑定地址不同（含通配 0.0.0.0 / ::）不能互相顶替
+    by_port: dict[tuple[int, str, int], dict[int, ProcessInfo]] = field(default_factory=dict)
     local_addrs: set[str] = field(default_factory=set)
 
     def __len__(self) -> int:
@@ -89,6 +91,9 @@ class ProcessTable:
         remote: tuple[str, int],
         pid: int,
     ) -> None:
+        if pid <= 0:
+            # TIME_WAIT 等无 owner 的行 PID 为 0，归到 System Idle 会造成误归属
+            return
         local_ip, local_port = local
         remote_ip, remote_port = remote
         if local_ip not in WILDCARD_ADDRS:
@@ -97,7 +102,7 @@ class ProcessTable:
             self.exact[(proto, local_ip, local_port, remote_ip, remote_port)] = ProcessInfo(
                 pid, "", "exact"
             )
-        self.by_port.setdefault((proto, local_port), {})[pid] = ProcessInfo(
+        self.by_port.setdefault((proto, local_ip, local_port), {})[pid] = ProcessInfo(
             pid, "", "port", "仅按本地端口匹配"
         )
 
@@ -121,8 +126,13 @@ class ProcessTable:
             # 抓镜像口/SPAN 时两端都不在本机地址表，宁可不归属
             return None
 
-        endpoint_port = local_port if local_is_local else remote_port
-        candidates = self.by_port.get((proto, endpoint_port))
+        endpoint_ip, endpoint_port = (
+            (local_ip, local_port) if local_is_local else (remote_ip, remote_port)
+        )
+        candidates = self.by_port.get((proto, endpoint_ip, endpoint_port))
+        if not candidates:
+            wildcard = "::" if ":" in endpoint_ip else "0.0.0.0"
+            candidates = self.by_port.get((proto, wildcard, endpoint_port))
         if not candidates:
             return None
         if len(candidates) == 1:
@@ -286,6 +296,7 @@ class SystemResolver:
         self._lock = threading.Lock()
         self._note = ""
         self._last_refresh_ms = 0.0
+        self._last_force = float("-inf")
 
     @property
     def status_text(self) -> str:
@@ -325,10 +336,15 @@ class SystemResolver:
         self, local: tuple[str, int], remote: tuple[str, int], proto: int
     ) -> ProcessInfo | None:
         self.refresh()
-        table = self._table
-        if table is None:
-            return None
-        info = table.match(local, remote, proto)
+        info = self._match(local, remote, proto)
+        if info is None:
+            # 新连接可能在快照建立之后才出现；未命中时强制刷新一次（全局节流），
+            # 否则 TTL 窗口内创建 + 首载荷两次查询都会落在旧快照上。
+            now = self._clock()
+            if now - self._last_force >= FORCE_REFRESH_INTERVAL:
+                self._last_force = now
+                self.refresh(force=True)
+                info = self._match(local, remote, proto)
         if info is None or info.pid is None:
             return info
         name = self._name_for(info.pid)
@@ -336,6 +352,14 @@ class SystemResolver:
         if not name and not note:
             note = "无法读取进程名（权限不足或进程已退出）"
         return ProcessInfo(info.pid, name, info.confidence, note)
+
+    def _match(
+        self, local: tuple[str, int], remote: tuple[str, int], proto: int
+    ) -> ProcessInfo | None:
+        table = self._table
+        if table is None:
+            return None
+        return table.match(local, remote, proto)
 
     def _name_for(self, pid: int) -> str:
         now = self._clock()

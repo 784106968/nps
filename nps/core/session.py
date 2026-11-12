@@ -30,6 +30,7 @@ PROTOCOL_NAMES = {TCP: "TCP", UDP: "UDP", ICMP: "ICMP", ICMPV6: "ICMPv6"}
 DEFAULT_TIMEOUTS = {TCP: 120.0, UDP: 60.0, ICMP: 30.0, ICMPV6: 30.0}
 OTHER_TIMEOUT = 60.0
 MAX_PAYLOAD = 512
+PROCESS_RETRY_SECONDS = 1.0
 
 
 @dataclass(frozen=True, slots=True)
@@ -66,6 +67,7 @@ class Session:
     process_name: str | None = None
     process_confidence: str | None = None  # "exact" | "port" | "ambiguous"
     process_note: str = ""
+    process_attempt_ts: float = 0.0
     app_protocol: str | None = None
     confidence: str | None = None
     classification_note: str = ""
@@ -97,6 +99,19 @@ class Session:
         if self.proto in (ICMP, ICMPV6):
             return f"{client_ip} ↔ {server_ip}"
         return f"{client_ip}:{client_port} ↔ {server_ip}:{server_port}"
+
+
+def _is_non_unicast(ip: str) -> bool:
+    """组播/广播/未指定地址不可能是本机单播 socket，不参与归属。"""
+    try:
+        address = ipaddress.ip_address(ip)
+    except ValueError:
+        return False
+    if address.is_multicast or address.is_unspecified:
+        return True
+    return isinstance(address, ipaddress.IPv4Address) and address == ipaddress.IPv4Address(
+        "255.255.255.255"
+    )
 
 
 def _parse_flow(packet: Packet) -> FlowInfo | None:
@@ -276,9 +291,14 @@ class SessionTable:
             session.last_ts = max(session.last_ts, packet.ts)
 
         new_payload = self._absorb(session, packet, flow, endpoint_src)
-        if created or (new_payload and session.process_confidence != "exact"):
-            # 服务端 accept 后连接会从 listener 转移到 worker，首载荷时补一次精确归属
-            self._attribute(session, endpoint_src, endpoint_dst, flow.proto)
+        retry = (
+            session.process_confidence != "exact"
+            and packet.ts - session.process_attempt_ts >= PROCESS_RETRY_SECONDS
+        )
+        if created or (new_payload and session.process_confidence != "exact") or retry:
+            # 服务端 accept 后连接会从 listener 转移到 worker，首载荷时补一次精确归属；
+            # 未命中时每秒重试一次，避免快照 TTL 窗口内建立的连接永久为空。
+            self._attribute(session, endpoint_src, endpoint_dst, flow.proto, packet.ts)
         packet.stream_id = session.stream_id
         self._version += 1
         self._snapshot = None
@@ -290,7 +310,11 @@ class SessionTable:
         src: tuple[str, int],
         dst: tuple[str, int],
         proto: int,
+        ts: float,
     ) -> None:
+        session.process_attempt_ts = ts
+        if _is_non_unicast(src[0]) or _is_non_unicast(dst[0]):
+            return
         try:
             info = self._resolver.resolve(src, dst, proto)
         except Exception:  # 归属失败不得影响会话主流程
