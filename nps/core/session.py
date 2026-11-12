@@ -121,8 +121,9 @@ def _parse_flow(packet: Packet) -> FlowInfo | None:
             return None
         proto = raw[offset + 6]
         payload_len = int.from_bytes(raw[offset + 4 : offset + 6], "big")
-        src = str(ipaddress.IPv6Address(raw[offset + 8 : offset + 24]))
-        dst = str(ipaddress.IPv6Address(raw[offset + 24 : offset + 40]))
+        # Python 3.12 的 IPv6Address 只接受 bytes，memoryview 会被当成字符串解析
+        src = str(ipaddress.IPv6Address(bytes(raw[offset + 8 : offset + 24])))
+        dst = str(ipaddress.IPv6Address(bytes(raw[offset + 24 : offset + 40])))
         l4 = offset + 40
         segment_end = min(len(raw), l4 + payload_len)
     else:

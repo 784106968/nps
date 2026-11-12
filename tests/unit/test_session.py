@@ -242,3 +242,39 @@ def test_twenty_thousand_sessions_memory() -> None:
 
     assert len(table) == 20_000
     assert peak < 200 * 1024 * 1024, f"峰值内存 {peak / 1024 / 1024:.1f} MB"
+
+
+def ipv6_tcp_packet(
+    src: str,
+    dst: str,
+    sport: int,
+    dport: int,
+    payload: bytes = b"",
+    ts: float = 1_000.0,
+) -> Packet:
+    tcp = struct.pack("!HHIIBBHHH", sport, dport, 1, 0, 0x50, 0x18, 64240, 0, 0) + payload
+    ipv6 = (
+        struct.pack(
+            "!IHBB16s16s",
+            0x60000000,
+            len(tcp),
+            6,
+            64,
+            socket.inet_pton(socket.AF_INET6, src),
+            socket.inet_pton(socket.AF_INET6, dst),
+        )
+        + tcp
+    )
+    return _packet(_eth(ipv6, 0x86DD), ts)
+
+
+def test_ipv6_session_parses_addresses() -> None:
+    # 回归：Python 3.12 的 IPv6Address 不接受 memoryview，必须显式转 bytes
+    table = SessionTable()
+    session = table.add(ipv6_tcp_packet("2001:db8::1", "2001:db8::2", 50000, 443, b"x"))
+
+    assert session is not None
+    assert session.protocol == "TCP"
+    assert session.endpoint_a == ("2001:db8::1", 50000)
+    assert session.endpoint_b == ("2001:db8::2", 443)
+    assert session.packets_up == 1
