@@ -171,6 +171,10 @@ _FLAG_NAMES = (
     (0x20, "URG"),
 )
 
+# 流视图需要判断每个包的方向（源端点是否等于 initiator），
+# 公开别名避免跨模块引用私有函数。
+parse_flow = _parse_flow
+
 
 class SessionTable:
     """按 LRU 淘汰的会话表。"""
@@ -184,10 +188,17 @@ class SessionTable:
         self._next_id = 1
         self._evicted = 0
         self._expired = 0
+        self._version = 0
+        self._snapshot: list[Session] | None = None
 
     @property
     def capacity(self) -> int:
         return self._capacity
+
+    @property
+    def version(self) -> int:
+        """每次会话内容变化时自增，供界面模型做 O(1) 变更判断。"""
+        return self._version
 
     @property
     def evicted(self) -> int:
@@ -204,7 +215,10 @@ class SessionTable:
         return self._by_id.get(stream_id)
 
     def sessions(self) -> list[Session]:
-        return list(self._sessions.values())
+        """当前会话快照（只读；调用方不得修改返回列表）。"""
+        if self._snapshot is None:
+            self._snapshot = list(self._sessions.values())
+        return self._snapshot
 
     def clear(self) -> None:
         self._sessions.clear()
@@ -212,6 +226,8 @@ class SessionTable:
         self._next_id = 1
         self._evicted = 0
         self._expired = 0
+        self._version += 1
+        self._snapshot = None
 
     def add(self, packet: Packet) -> Session | None:
         """把包归入会话，并写回 ``packet.stream_id``；非 IP 包返回 None。"""
@@ -250,6 +266,8 @@ class SessionTable:
 
         self._absorb(session, packet, flow, endpoint_src)
         packet.stream_id = session.stream_id
+        self._version += 1
+        self._snapshot = None
         return session
 
     def _absorb(self, session: Session, packet: Packet, flow: FlowInfo, endpoint_src) -> None:
@@ -314,4 +332,7 @@ class SessionTable:
             session = self._sessions.pop(key)
             self._by_id.pop(session.stream_id, None)
             self._expired += 1
+        if stale:
+            self._version += 1
+            self._snapshot = None
         return len(stale)

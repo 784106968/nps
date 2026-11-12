@@ -46,6 +46,7 @@ from nps.decode import Field
 from nps.filters import FilterError
 from nps.gui.detail_tree import DetailTree
 from nps.gui.filter_proxy import PacketFilterProxy
+from nps.gui.flow_view import FlowView
 from nps.gui.hex_view import HexView
 from nps.gui.packet_model import COLUMNS, PacketTableModel
 from nps.gui.session_model import SessionTableModel
@@ -94,11 +95,14 @@ class MainWindow(QMainWindow):
         self._queue = BoundedPacketQueue(QUEUE_CAPACITY)
         self._backend: PcapBackend | None = None
         self._paused = False
+        self._flow_stream_id: int | None = None
+        self._flow_signature: tuple[int, int] | None = None
 
         self.packet_model = PacketTableModel(MODEL_CAPACITY, self)
         self.filter_proxy = PacketFilterProxy(self)
         self.session_model = SessionTableModel(self.packet_model.session_table, self)
         self.stats_view = StatsView()
+        self.flow_view = FlowView()
         self.table = QTableView()
         self.detail_tree = DetailTree()
         self.hex_view = HexView()
@@ -279,8 +283,19 @@ class MainWindow(QMainWindow):
         stats_dock.setWidget(self.stats_view)
         self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, stats_dock)
         self.tabifyDockWidget(dock, stats_dock)
-        dock.raise_()
         self.stats_dock = stats_dock
+
+        flow_dock = QDockWidget("流时序图", self)
+        flow_dock.setObjectName("flowDock")
+        flow_dock.setAllowedAreas(
+            Qt.DockWidgetArea.RightDockWidgetArea | Qt.DockWidgetArea.BottomDockWidgetArea
+        )
+        flow_dock.setWidget(self.flow_view)
+        self.addDockWidget(Qt.DockWidgetArea.RightDockWidgetArea, flow_dock)
+        self.tabifyDockWidget(stats_dock, flow_dock)
+        self.tabifyDockWidget(dock, flow_dock)
+        dock.raise_()
+        self.flow_dock = flow_dock
         self.resizeDocks([dock], [700], Qt.Orientation.Horizontal)
 
     def _build_statusbar(self) -> None:
@@ -377,6 +392,9 @@ class MainWindow(QMainWindow):
         self.session_model.invalidate()
         self.session_model.refresh()
         self.stats_view.update_from(self.packet_model)
+        self.flow_view.clear()
+        self._flow_stream_id = None
+        self._flow_signature = None
         self._update_status()
 
     def save_pcap(self) -> None:
@@ -443,6 +461,7 @@ class MainWindow(QMainWindow):
         self.hex_view.set_data(bytes(packet.raw))
         self.packet_model.set_highlight_stream(packet.stream_id)
         self._sync_session_selection(packet.stream_id)
+        self._show_flow(session)
 
     def _on_session_tick(self) -> None:
         # 用"最后一个包的时间戳"做老化基准：离线回放旧 PCAP 时不会因为系统时间而误清空
@@ -450,14 +469,31 @@ class MainWindow(QMainWindow):
         removed = self.packet_model.session_table.expire(now)
         self.session_model.refresh()
         self.stats_view.update_from(self.packet_model)
+        if self._flow_stream_id is not None:
+            session = self.packet_model.session_table.get(self._flow_stream_id)
+            if session is not None:
+                self._show_flow(session)
         if removed:
             self._update_status()
+
+    def _show_flow(self, session) -> None:
+        """把某条流的包推给流时序图；同流同包数时跳过，避免重复解析。"""
+        if session is None:
+            return
+        signature = (session.stream_id, session.packets_total)
+        if signature == self._flow_signature:
+            return
+        packets = self.packet_model.packets_of_stream(session.stream_id)
+        self.flow_view.set_flow(session, packets, keep_view=True)
+        self._flow_stream_id = session.stream_id
+        self._flow_signature = signature
 
     def _on_session_clicked(self, index) -> None:
         session = self.session_model.session_at(index.row())
         if session is None:
             return
         self.packet_model.set_highlight_stream(session.stream_id)
+        self._show_flow(session)
 
     def _on_session_activated(self, index) -> None:
         session = self.session_model.session_at(index.row())

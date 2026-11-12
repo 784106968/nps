@@ -17,7 +17,7 @@ class SessionTableModel(QAbstractTableModel):
         super().__init__(parent)
         self._table = table
         self._sessions: list[Session] = []
-        self._signature: tuple[int, int, float] = (-1, 0, 0.0)
+        self._last_version = -1
         self.refresh()
 
     def rowCount(self, parent: QModelIndex = _NO_PARENT) -> int:  # noqa: N802
@@ -55,22 +55,19 @@ class SessionTableModel(QAbstractTableModel):
         return section + 1
 
     def refresh(self) -> None:
-        sessions = self._table.sessions()
-        signature = (
-            len(sessions),
-            sum(session.packets_total for session in sessions),
-            max((session.last_ts for session in sessions), default=0.0),
-        )
-        if signature == self._signature:
+        # 会话表自带 version，命中时直接返回；避免每秒对 2 万会话做一次
+        # O(n) 的签名计算（旧实现要遍历求和 + 取最大时间戳）。
+        version = self._table.version
+        if version == self._last_version:
             return
         self.beginResetModel()
-        self._sessions = sessions
-        self._signature = signature
+        self._sessions = self._table.sessions()
+        self._last_version = version
         self.endResetModel()
 
     def invalidate(self) -> None:
         """强制下次 refresh 重建（例如清空之后）。"""
-        self._signature = (-1, 0, 0.0)
+        self._last_version = -1
 
     def session_at(self, row: int) -> Session | None:
         if 0 <= row < len(self._sessions):
