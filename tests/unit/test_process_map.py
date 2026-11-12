@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import ipaddress
 import socket
 import struct
 from types import SimpleNamespace
@@ -13,6 +14,7 @@ from nps.core.process_map import (
     NullResolver,
     ProcessTable,
     SystemResolver,
+    _ipv6,
 )
 from nps.decode import decode_packet
 from nps.filters import FilterError, compile_filter
@@ -110,6 +112,19 @@ def test_unknown_endpoints_return_none() -> None:
     table.add(6, CLIENT, SERVER, 1234)
 
     assert table.match(("8.8.8.8", 1234), ("1.1.1.1", 80), 6) is None
+
+
+def test_ipv6_v4_mapped_is_normalized() -> None:
+    # 回归：表侧曾用 inet_ntop（::ffff:192.168.1.5），包侧用 ipaddress（::ffff:c0a8:105），
+    # 双栈程序因此永远匹配不上
+    raw = socket.inet_pton(socket.AF_INET6, "::ffff:192.168.1.5")
+    assert _ipv6(raw) == str(ipaddress.IPv6Address(raw))
+
+    table = ProcessTable()
+    table.add(6, ("::ffff:c0a8:105", 50000), ("2001:db8::2", 443), 66)
+    info = table.match(("::ffff:c0a8:105", 50000), ("2001:db8::2", 443), 6)
+    assert info is not None
+    assert info.pid == 66
 
 
 def test_udp_connected_socket_matches() -> None:

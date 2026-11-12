@@ -31,6 +31,8 @@ GUI                       PySide6：三窗格、过滤栏、会话视图、流�
 ```
 
 - **惰性解析**：`data()` 只对可见行触发解析，结果按包序号缓存；20 万包不会在插入时全量解析。
+  注意：启用显示过滤器后，`QSortFilterProxyModel` 需要对每个新行求值，会触发全量解码
+  （见下方"已知边界"）。
 - **容量淘汰**：模型在插入前用 `overflow_for()` 预判需要移除的行数，先 `beginRemoveRows`
   再丢弃，保证 Qt 的行号始终与存储一致。
 - **字段高亮**：详情树节点存 `(offset, length)` 绝对偏移，HexView 直接按偏移绘制高亮块。
@@ -127,7 +129,8 @@ pcap_dispatch
 `nps/gui/flow_view.py` 是只读消费者，不参与捕获与解析：
 
 - **数据源**：`PacketTableModel.packets_of_stream(stream_id)` 返回该流的 `Packet` 引用列表。
-  模型维护 `stream_id → 行号` 索引，按流取包是 O(k)；容量淘汰会清空索引（行号整体前移）；
+  模型维护 `stream_id → 行号` 索引，按流取包是 O(k)；容量淘汰后索引标记失效，
+  下一次插入时整体重建（行号整体前移），避免只重建半张表导致流视图少包；
 - **方向判定**：复用 `nps.core.session.parse_flow` 做一次轻量 IP/L4 解析，
   源端点等于 `session.initiator` 记为上行，否则下行；
 - **布局**：横轴是时间视窗，纵轴两端固定为客户端/服务端；每个包是一条贯穿两端的线，
@@ -160,7 +163,7 @@ pcap_dispatch
 
 | 层 | 职责 |
 | --- | --- |
-| `ProcessTable` | 与平台无关的快照与匹配：`exact[(proto, local_ip, port, remote_ip, port)]`、`by_port[(proto, port)]`、`local_addrs` |
+| `ProcessTable` | 与平台无关的快照与匹配：`exact[(proto, local_ip, port, remote_ip, port)]`、`by_port[(proto, local_ip, port)]`（值按 PID 去重）、`local_addrs` |
 | `SystemResolver` | TTL 快照（2 s）、进程名缓存（30 s）、异常降级；Windows 表读取由 `_windows_table` 注入 |
 | `create_resolver` | Windows 返回 `SystemResolver`，其他平台返回 `NullResolver` |
 
@@ -192,5 +195,9 @@ listener → worker 的刷新）。抓包回调与每包路径不调用 OS。
 
 - 不做 TCP 重组：流视图以包为粒度；
 - 不做 TLS 解密；
-- 不做进程级归属（`Session.pid` 仅预留）；
+- 进程归属只实现 Windows（`Session.pid` 有值），Linux `/proc` 方案暂缓；
+- 显示过滤会对每个新行调用 `decode_packet` 求值，因此"过滤 + 20 万包"不是惰性的，
+  这是当前实现的已知性能边界；
+- 会话属性（DPI、进程归属）在首载荷/重试后更新，过滤器依赖会话版本变化重算；
+- IPv6 扩展头（0/43/44/60）未在会话层跳过，这类包不进入会话（IPv6 分片等）；
 - 离线与在线共用分发逻辑，但离线没有驱动统计，`stats().recv` 取已投递包数。

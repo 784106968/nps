@@ -66,6 +66,8 @@ value      := integer | "quoted string" | identifier | ip-literal
 5. **帧序号保持原值**：过滤不会重新编号，`No.` 始终是抓包时的全局序号。
 6. **进程字段依赖会话归属**：`process.pid` / `process.name` 只在 Windows 上由 P6 填充；
    非 Windows、离线 PCAP 或归属失败时恒为 `false`，不报错。
+7. **会话属性会晚到**：DPI 与进程归属在首个载荷或后续重试时才更新，
+   过滤器会在会话版本变化时自动重算，因此同一表达式的结果可能从"不匹配"变为"匹配"。
 
 ## 4. 示例
 

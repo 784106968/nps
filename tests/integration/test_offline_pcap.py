@@ -48,7 +48,9 @@ def collect(
 def test_reads_all_packets() -> None:
     packets, stats = collect()
     assert len(packets) == 6
-    assert [packet.index for packet in packets] == [1, 2, 3, 4, 5, 6]
+    # index 是进程级全局序号，不保证从 1 开始，但必须严格连续递增
+    first = packets[0].index
+    assert [packet.index for packet in packets] == list(range(first, first + 6))
     assert stats.recv == 6
 
 

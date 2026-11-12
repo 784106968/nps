@@ -436,3 +436,34 @@ Edge ↔ 代理之间是回环连接，不在 Wi-Fi 抓包范围——这不是�
 - P6 分支提交、PR 与 CI 回归；
 - 现场用浏览器/`curl` 验证进程列与 `process.name` 过滤；
 - 视时间决定是否启动 Linux 版本（当前不排期）。
+
+## 2026-11-12（周四）｜整体审查与缺陷修复
+
+P6 合并后做了一次全量审查（静态检查 + 236 条测试 + 独立代码审查），
+修复以下会产生"结果错误但界面正常"的问题：
+
+| 级别 | 问题 | 修复 |
+| --- | --- | --- |
+| 阻断 | `Packet.index` 每个 `PcapBackend` 实例从 1 重计，停止后再开始会命中旧 `Decoded` 缓存，源/目的/协议整体错位 | 改为模块级 `itertools.count`，进程内单调；离线测试改为断言连续递增 |
+| 阻断 | 表侧 IPv6 用 `inet_ntop`（`::ffff:192.168.1.5`），包侧用 `ipaddress`（`::ffff:c0a8:105`），双栈程序永不匹配 | 表侧统一 `ipaddress.IPv6Address` |
+| 高 | 容量淘汰后 `_stream_rows` 只重建新批次，旧流索引残缺，流视图静默少包 | 索引置 `None`，下一次插入整体重建；补淘汰回归测试 |
+| 高 | 显示过滤只在改表达式时重算，DPI/进程归属晚到后 `protocol`/`process.*` 结果过期 | 会话 `version` 变化时 `invalidate()` 过滤器 |
+| 中 | 单批包数超过模型容量时 `overflow > len(store)` 抛 `IndexError` | `overflow` 取 `min(..., len(store))`，并处理 store 内部淘汰 |
+| 中 | 停止/清空不排空队列，残留包跨会话混排 | 停止时循环 drain 后 `queue.reset()`；清空时同样重置 |
+| 中 | `FlowView` 未设焦点策略，`+/-/0` 快捷键不可达 | `setFocusPolicy(StrongFocus)` |
+| 中 | `_windows_process_name` 未声明 ctypes 签名，64 位 HANDLE 可能被截断 | 补齐 `argtypes/restype`，失败返回空 |
+| 低 | `_query_table` 遇到 122（表变大）直接失败且状态停留 | 重取 size，最多重试 3 次 |
+
+同时修正文档与实现不符之处：`ARCHITECTURE.md` 删除"不做进程级归属"的过期描述、
+`by_port` 键改为 `(proto, local_ip, port)`；`PROCESS_ATTRIBUTION.md` 的 TTL（2 s）、
+重试语义、本机端点判定；`README.md` 补全目录结构与"GUI 不支持离线打开"说明；
+`PERF.md` 区分流视图"构建 55.5/685 ms"与"渲染 13.6 ms"，并列出显示过滤全量解码等
+已知性能边界；`FILTER_SYNTAX.md` 说明会话属性晚到与自动重算。
+
+验证：`ruff check .` 通过，全量 **236 passed**。
+
+仍未处理（记录为已知边界，不影响本次演示）：
+- 显示过滤启用后每行都 `decode_packet`，20 万包下会卡顿；
+- 会话面板每秒全量 `beginResetModel`，2 万会话时选中/滚动会丢；
+- 流视图大流每秒全量重建 `FlowPoint`；
+- IPv6 扩展头/分片包不进入会话层。
