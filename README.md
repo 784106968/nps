@@ -18,6 +18,7 @@
 | P3 | 会话表与流追踪（五元组合并、老化、同流高亮、会话面板） | **完成**（进程归属待后续） |
 | P4 | DPI 协议识别（HTTP/TLS/SSH/DNS/BitTorrent）、TLS 握手解析（SNI/ALPN）、字段复制、统计视图 | **完成** |
 | P5 | 流时序图（缩放/聚合）、性能基线、五分钟演示脚本 | **完成** |
+| P6 | 进程归属（Windows：会话列、`process.*` 过滤、自检脚本） | **完成**（Linux 搁置） |
 
 完整计划、验收标准与日程见 [`NPS-Readme.md`](NPS-Readme.md)，逐日记录见
 [`docs/DEVLOG.md`](docs/DEVLOG.md)。
@@ -103,6 +104,7 @@ tests/           单元测试与合成 PCAP
 - [`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)：环境、权限与故障排查
 - [`docs/PERF.md`](docs/PERF.md)：1k/10k/100k 包性能基线与验收对比
 - [`docs/DEMO.md`](docs/DEMO.md)：五分钟演示脚本
+- [`docs/PROCESS_ATTRIBUTION.md`](docs/PROCESS_ATTRIBUTION.md)：进程归属需求、判定规则与边界
 - [`docs/DEVLOG.md`](docs/DEVLOG.md)：每日开发记录
 
 ## 许可证

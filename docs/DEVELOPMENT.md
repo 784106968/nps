@@ -35,6 +35,7 @@ python -m nps -i "<设备>" -f "tcp port 80" -c 20 # 抓 20 个包
 python -m nps -i "<设备>" --duration 5           # 抓 5 秒
 python -m nps --offline tests/fixtures/sample_traffic.pcap
 python scripts/probe_pcap.py                     # 底层 API 冒烟
+python scripts/probe_process.py                  # 进程归属自检（Windows）
 python scripts/make_fixtures.py                  # 重新生成合成 PCAP
 pytest -m "not requires_npcap"                   # CI 口径
 pytest -m requires_npcap                         # 真实网卡
@@ -56,6 +57,8 @@ ruff check . && ruff format --check .
 | 安装报 `silent installation is only supported in Npcap OEM` | 免费版不支持 `/S` 静默安装 | 用图形向导安装，勾选 loopback；静默仅 OEM 版可用 |
 | Npcap 安装器无提示直接退出（退出码 2） | 系统残留旧 WinPcap 注册项或 `System32\wpcap.dll` | 卸载 WinPcap，并把残留 `wpcap.dll`/`packet.dll` 移出 System32 后重试 |
 | 无线网卡抓不到其它主机 | 混杂模式 ≠ 监控模式 | 属预期行为，见 `CONCEPTS.md` §5 |
+| 会话「进程」列一直是「—」 | 非 Windows、离线回放或归属失败 | 运行 `python scripts/probe_process.py` 看状态；离线 PCAP 无归属属预期 |
+| 进程列只有 PID、没有名称 | `OpenProcess` 权限不足或进程已退出 | 提升权限重试；PID 仍可作线索 |
 | 停止按钮响应慢 | `timeout` 设置过大 | 保持 100 ms，最多 500 ms 内退出 |
 
 ## 4. 无驱动环境下的开发

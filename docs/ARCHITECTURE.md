@@ -82,7 +82,8 @@ pcap_dispatch
   因此双向流量落在同一会话；ICMP 没有端口，端口位固定为 0。
 - **stream_id**：从 1 单调递增；首次建表时的首包方向记为 `initiator`，据此判定上/下行。
 - **记录内容**：首末时间、上下行包数与字节数、TCP 标志集合、首上行载荷（≤512 字节）、
-  状态（进行中 / 关闭中 / 已关闭）、`pid`（本期恒为 None）。
+  状态（进行中 / 关闭中 / 已关闭）、进程归属（`pid / process_name / process_confidence /
+  process_note`，P6 Windows；需求见 [`PROCESS_ATTRIBUTION.md`](PROCESS_ATTRIBUTION.md)）。
 - **老化**：TCP 120 s、UDP 60 s、ICMP/ICMPv6 30 s。`expire(now)` 接收显式时间，
   单元测试用虚拟时钟驱动；界面以「最后一个包的时间戳」为基准，
   避免回放旧 PCAP 时被系统时间误清空。
@@ -152,6 +153,27 @@ pcap_dispatch
 | `stream_id → 行号` 索引 | `PacketTableModel._stream_rows` | 按流取包 O(k)，拖动/缩放不扫全表 |
 | 会话表 `version` + 快照缓存 | `SessionTable` | 空闲每秒刷新从 O(n) 降为 O(1) |
 | `memoryview` 零拷贝 | `Packet.raw` | 十六进制/导出/二次解析共用同一份字节 |
+
+## 进程归属（P6，Windows）
+
+`nps/core/process_map.py` 把会话映射到本机进程，分三层：
+
+| 层 | 职责 |
+| --- | --- |
+| `ProcessTable` | 与平台无关的快照与匹配：`exact[(proto, local_ip, port, remote_ip, port)]`、`by_port[(proto, port)]`、`local_addrs` |
+| `SystemResolver` | TTL 快照（2 s）、进程名缓存（30 s）、异常降级；Windows 表读取由 `_windows_table` 注入 |
+| `create_resolver` | Windows 返回 `SystemResolver`，其他平台返回 `NullResolver` |
+
+匹配顺序：先用 `local_addrs` 判断哪一端是本机，再查四元组（`exact`），
+失败回退本地端口（`port`）；端口被多个进程共用时返回 `ambiguous` 且 PID 为空。
+回环连接两端都是本机时，**优先归属发起方**（与 `Session.initiator` 一致）。
+
+调用时机只有两处：会话首次创建、首个上行/下行载荷到达（服务端 accept 后
+listener → worker 的刷新）。抓包回调与每包路径不调用 OS。
+
+界面消费：会话面板「进程」列显示 `name (pid)`，tooltip 给出置信度与备注；
+详情树追加「进程」节点；显示过滤提供 `process.pid` / `process.name`，
+求值从 `session` 读取（谓词已带 `session` 参数），不把进程信息复制到每个 `Packet`。
 
 ## 链路类型与头部布局（实测结论）
 

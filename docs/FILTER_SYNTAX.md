@@ -47,7 +47,9 @@ value      := integer | "quoted string" | identifier | ip-literal
 | `icmp.type` / `icmp.code` | 整数 | ICMP 类型 / 代码（v4 与 v6 通用） |
 | `arp.op` | 整数 | 1 请求 / 2 应答 |
 | `protocol` | 字符串 | 最高层协议名（DPI 标签优先），大小写不敏感 |
-| `stream_id` | 整数 | 会话编号（P3 起有值，当前恒为空） |
+| `stream_id` | 整数 | 会话编号（P3 起有值） |
+| `process.pid` | 整数 | 本机进程 PID（P6，Windows） |
+| `process.name` | 字符串 | 本机进程名（P6，Windows，大小写不敏感） |
 | `frame.len` | 整数 | 线路长度 |
 | `frame.number` | 整数 | 帧序号（过滤后不重新编号） |
 
@@ -62,6 +64,8 @@ value      := integer | "quoted string" | identifier | ip-literal
    例如 `protocol == 80` 报"需要字符串"，`tcp.port == "80"` 报"需要整数"。
 4. **IP 字段只支持 `==` 与 `!=`**，且右值可以是单个地址或 CIDR 网段。
 5. **帧序号保持原值**：过滤不会重新编号，`No.` 始终是抓包时的全局序号。
+6. **进程字段依赖会话归属**：`process.pid` / `process.name` 只在 Windows 上由 P6 填充；
+   非 Windows、离线 PCAP 或归属失败时恒为 `false`，不报错。
 
 ## 4. 示例
 
@@ -72,6 +76,8 @@ tcp.flags.syn == 1 && tcp.dstport == 80
 protocol == dns || udp.dstport == 53
 icmp.type == 8 && ip.dst == 8.8.8.8
 !(protocol == arp) && frame.len > 100
+process.name == "chrome.exe"
+process.pid == 1234 && tcp.port == 443
 ```
 
 ## 5. 错误提示
