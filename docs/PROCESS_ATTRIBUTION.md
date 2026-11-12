@@ -72,6 +72,9 @@ P3 已预留两个占位：
 | 系统代理 / VPN / NAT | 归属到可见的代理进程，note 标注"可能为代理转发" |
 | 容器 / WSL | 宿主只能看到 `vmmem` / `wslrelay` 等宿主进程，note 标注"容器/虚拟化边界" |
 | 抓镜像口 / SPAN | 本机端点不在 socket 表中，全部 `None` |
+| 组播 / 广播（mDNS 5353、SSDP、NetBIOS） | 本机通常没有对应单播 socket，直接跳过，显示「—」 |
+| 毫秒级短连接（DNS/UDP、CDN 短连） | socket 在两次快照之间已关闭，可能始终无法归属 |
+| 系统代理 / TUN | 抓物理网卡时看到的是代理进程的连接；浏览器与代理之间是回环流量 |
 | 权限不足 | 只返回可见进程；状态栏与 tooltip 标注"权限受限" |
 | PID 复用 | 第一版用 TTL 缩小窗口；增强版用进程启动时间校验（Linux `starttime`、Windows `GetProcessTimes`） |
 | 端口 0 / 异常端口 | 直接 `None` |
