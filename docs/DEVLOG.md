@@ -494,3 +494,18 @@ Windows 上 `pcap_findalldevs` 返回的描述可能是 ANSI（中文系统为 G
 - 全量 **244 passed**，`ruff check .` 与 `ruff format --check .` 通过；
 - 本机 9 个设备的 label 均无 U+FFFD；描述正常时输出与修改前一致
   （`Intel(R) Wi-Fi 6 AX201 160MHz` 等）。
+
+## 2026-11-15（周日）｜设备列表可读性优化
+
+用户反馈接口下拉框仍显示 `\Device\NPF_{GUID} 描述` 形式，GUID 对普通用户无意义。
+本次只调整展示层，抓包仍使用 `Interface.name`：
+
+- `Interface.label` 不再拼接设备路径，只返回可读名称；
+- 描述中的 `{...}` 原始代码片段在解码阶段统一移除；
+- 回环设备显示「回环抓包（Loopback）」，伪设备显示「任意接口（any）」；
+- 无描述时显示「网络设备 N」；
+- CLI `--list-interfaces` 改用中文括号标注混杂支持，去掉方括号与 GUID。
+
+验证：新增 3 条标签与解码测试，全量 **247 passed**；
+本机 9 个设备显示为 `Intel(R) Wi-Fi 6 AX201 160MHz`、`回环抓包（Loopback）` 等，
+不再出现 `\Device`、`{`、`}`。
