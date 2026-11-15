@@ -83,7 +83,7 @@ def print_interfaces() -> int:
     print(f"共 {len(devices)} 个设备：")
     for index, device in enumerate(devices, 1):
         promisc = "支持混杂" if device.promisc_supported else "不支持混杂"
-        print(f"{index:>2}. {device.label}  [{promisc}]")
+        print(f"{index:>2}. {device.label}（{promisc}）")
     return 0
 
 

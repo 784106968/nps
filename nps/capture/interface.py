@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import ctypes
 import locale
+import re
 import sys
 import unicodedata
 from ctypes import POINTER, byref, create_string_buffer
@@ -28,10 +29,13 @@ _PSEUDO_ANY = "any"
 _REPLACEMENT_CHAR = "\ufffd"
 # 控制/格式/代理/私用/未分配字符不参与展示
 _HIDDEN_CATEGORIES = {"Cc", "Cf", "Cs", "Co", "Cn"}
+# 设备描述中偶尔会夹带 {GUID} 等原始代码片段
+_BRACED_CODE = re.compile(r"\{[^}]*\}")
 
 
 def _clean_text(text: str) -> str:
-    """移除替换字符、控制字符与零宽字符，并压缩空白。"""
+    """移除大括号代码、替换字符、控制字符与零宽字符，并压缩空白。"""
+    text = _BRACED_CODE.sub(" ", text)
     kept = []
     for char in text:
         if char == _REPLACEMENT_CHAR:
@@ -139,15 +143,12 @@ class Interface:
 
     @property
     def label(self) -> str:
-        tags = []
+        """面向用户的设备名称：不展示 \\Device\\NPF_{GUID} 等原始路径。"""
         if self.is_loopback:
-            tags.append("回环")
+            return "回环抓包（Loopback）"
         if self.is_pseudo:
-            tags.append("伪设备")
-        suffix = f"  [{'/'.join(tags)}]" if tags else ""
-        text = (self.display_name or self.description).strip()
-        desc = f"  {text}" if text else ""
-        return f"{self.name}{suffix}{desc}"
+            return "任意接口（any）"
+        return (self.display_name or self.description).strip() or "未知网络设备"
 
 
 def list_interfaces(lib: ctypes.CDLL | None = None) -> list[Interface]:
