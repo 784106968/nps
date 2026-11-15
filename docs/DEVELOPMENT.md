@@ -59,6 +59,8 @@ ruff check . && ruff format --check .
 | 无线网卡抓不到其它主机 | 混杂模式 ≠ 监控模式 | 属预期行为，见 `CONCEPTS.md` §5 |
 | 会话「进程」列一直是「—」 | 非 Windows、离线回放或归属失败 | 运行 `python scripts/probe_process.py` 看状态；离线 PCAP 无归属属预期 |
 | 进程列只有 PID、没有名称 | `OpenProcess` 权限不足或进程已退出 | 提升权限重试；PID 仍可作线索 |
+| 接口下拉框显示「网络设备 N」 | 驱动未返回描述，或描述编码无法识别 | 程序已回退统一默认名；可运行 `python -m nps --list-interfaces` 核对设备路径 |
+| 设备名出现方块/问号 | 终端代码页与 UTF-8 不一致 | 执行 `chcp 65001` 或直接查看 GUI；程序内部已统一为 Unicode 字符串 |
 | 停止按钮响应慢 | `timeout` 设置过大 | 保持 100 ms，最多 500 ms 内退出 |
 
 ## 4. 无驱动环境下的开发
