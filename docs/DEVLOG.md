@@ -509,3 +509,14 @@ Windows 上 `pcap_findalldevs` 返回的描述可能是 ANSI（中文系统为 G
 验证：新增 3 条标签与解码测试，全量 **247 passed**；
 本机 9 个设备显示为 `Intel(R) Wi-Fi 6 AX201 160MHz`、`回环抓包（Loopback）` 等，
 不再出现 `\Device`、`{`、`}`。
+
+## 2026-11-15（周日）｜详情树 TLS 层级调整
+
+用户反馈选中 TLS 包后，无法从 TCP 逐层展开到 TLS。原实现沿用 Wireshark 习惯，
+把 TLS 作为与 TCP 并列的顶层协议；对教学场景来说，阅读路径不够直观。
+
+- 在 GUI 展示层新增 `_nest_application_layers`：把 TLS 层挂到 TCP 节点下，
+  形成「以太网 → IP → TCP → TLS」的展开路径；
+- 只复制 TCP 节点并复用原字段，**不修改解析缓存**，十六进制高亮偏移不变；
+- 更新 TLS 界面测试，断言 TLS 不再是顶层、且父节点为 TCP；
+- 全量 **247 passed**，`ruff check .` 通过。
