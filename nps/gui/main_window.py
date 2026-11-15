@@ -543,12 +543,34 @@ class MainWindow(QMainWindow):
         self.packet_model.set_highlight_stream(session.stream_id)
         self._show_flow(session)
 
+    def _representative_row(self, stream_id: int) -> int:
+        """优先返回带应用层（TLS/HTTP）的包，避免双击会话只看到 SYN。"""
+        first_row = -1
+        payload_row = -1
+        for row in range(self.packet_model.rowCount()):
+            packet = self.packet_model.packet_at(row)
+            if packet is None or packet.stream_id != stream_id:
+                continue
+            if first_row < 0:
+                first_row = row
+            decoded = self.packet_model.decoded_at(row)
+            if decoded is None:
+                continue
+            if any(
+                layer.name in ("Transport Layer Security", "Hypertext Transfer Protocol")
+                for layer in decoded.layers
+            ):
+                return row
+            if payload_row < 0 and int(decoded.fields.get("tcp.len", 0) or 0) > 0:
+                payload_row = row
+        return payload_row if payload_row >= 0 else first_row
+
     def _on_session_activated(self, index) -> None:
         session = self.session_model.session_at(index.row())
         if session is None:
             return
         self.packet_model.set_highlight_stream(session.stream_id)
-        row = self.packet_model.row_of_stream(session.stream_id)
+        row = self._representative_row(session.stream_id)
         if row < 0:
             self.status_label.setText("该流的包已被容量上限淘汰")
             return
