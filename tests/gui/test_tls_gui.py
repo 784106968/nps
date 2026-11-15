@@ -55,7 +55,17 @@ def find_item(item, prefix: str):
     return None
 
 
-def test_detail_tree_shows_tls_handshake(app) -> None:
+def find_tcp_item(window):
+    return next(
+        window.detail_tree.topLevelItem(index)
+        for index in range(window.detail_tree.topLevelItemCount())
+        if window.detail_tree.topLevelItem(index)
+        .text(0)
+        .startswith("Transmission Control Protocol")
+    )
+
+
+def test_detail_tree_shows_tls_under_tcp(app) -> None:
     window = MainWindow()
     try:
         window.feed_packets([make_packet()])
@@ -65,13 +75,13 @@ def test_detail_tree_shows_tls_handshake(app) -> None:
             window.detail_tree.topLevelItem(index).text(0)
             for index in range(window.detail_tree.topLevelItemCount())
         ]
-        assert any(title.startswith("Transport Layer Security") for title in titles)
+        assert not any(title.startswith("Transport Layer Security") for title in titles)
 
-        tls_item = next(
-            window.detail_tree.topLevelItem(index)
-            for index in range(window.detail_tree.topLevelItemCount())
-            if window.detail_tree.topLevelItem(index).text(0).startswith("Transport Layer Security")
-        )
+        tcp_item = find_tcp_item(window)
+        tls_item = find_item(tcp_item, "Transport Layer Security")
+        assert tls_item is not None, "TLS 应作为 TCP 的子节点展示"
+        assert tls_item.parent() is tcp_item
+
         all_text = texts(tls_item)
         assert any("Client Hello" in text for text in all_text)
         assert any("example.com" in text for text in all_text)
@@ -86,11 +96,9 @@ def test_selecting_sni_highlights_bytes(app) -> None:
         window.feed_packets([make_packet()])
         window.select_row(0)
 
-        tls_item = next(
-            window.detail_tree.topLevelItem(index)
-            for index in range(window.detail_tree.topLevelItemCount())
-            if window.detail_tree.topLevelItem(index).text(0).startswith("Transport Layer Security")
-        )
+        tcp_item = find_tcp_item(window)
+        tls_item = find_item(tcp_item, "Transport Layer Security")
+        assert tls_item is not None
         host_item = find_item(tls_item, "Host Name: example.com")
         assert host_item is not None, "详情树中未找到 Host Name 字段"
         window.detail_tree.setCurrentItem(host_item)
