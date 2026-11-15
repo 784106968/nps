@@ -4,7 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from nps.capture.interface import Interface, choose_default, is_loopback_name
+from nps.capture.interface import (
+    Interface,
+    choose_default,
+    decode_device_text,
+    default_device_name,
+    is_loopback_name,
+)
 from nps.capture.libpcap import PcapError
 
 
@@ -68,3 +74,48 @@ def test_choose_default_falls_back_to_first() -> None:
 def test_choose_default_without_devices_raises() -> None:
     with pytest.raises(PcapError):
         choose_default([])
+
+
+def test_decode_utf8_description() -> None:
+    raw = b"Intel(R) Wi-Fi 6 AX201 160MHz"
+    assert decode_device_text(raw) == "Intel(R) Wi-Fi 6 AX201 160MHz"
+
+
+def test_decode_gbk_description() -> None:
+    raw = "无线网络适配器".encode("gbk")
+    assert decode_device_text(raw) == "无线网络适配器"
+
+
+def test_decode_utf16_with_bom() -> None:
+    raw = "无线网络适配器".encode("utf-16")
+    assert decode_device_text(raw) == "无线网络适配器"
+
+
+def test_decode_strips_control_and_replacement_chars() -> None:
+    raw = b"Wi-Fi\x00\x01  Adapter\xef\xbf\xbd"
+    assert decode_device_text(raw) == "Wi-Fi Adapter"
+
+
+def test_decode_garbage_returns_empty() -> None:
+    assert decode_device_text(b"\x00\x01\x02\x03") == ""
+    assert decode_device_text(b"\xef\xbf\xbd\xef\xbf\xbd") == ""
+
+
+def test_decode_empty_input() -> None:
+    assert decode_device_text(None) == ""
+    assert decode_device_text(b"") == ""
+
+
+def test_label_uses_default_name_when_description_missing() -> None:
+    device = Interface(
+        name=r"\Device\NPF_{ABC}",
+        display_name=default_device_name(2),
+    )
+    assert "网络设备 2" in device.label
+    assert "\ufffd" not in device.label
+
+
+def test_label_prefers_display_name() -> None:
+    device = Interface(name="eth0", description="Ethernet", display_name="网络设备 1")
+    assert "网络设备 1" in device.label
+    assert "Ethernet" not in device.label

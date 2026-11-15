@@ -467,3 +467,30 @@ P6 合并后做了一次全量审查（静态检查 + 236 条测试 + 独立代�
 - 会话面板每秒全量 `beginResetModel`，2 万会话时选中/滚动会丢；
 - 流视图大流每秒全量重建 `FlowPoint`；
 - IPv6 扩展头/分片包不进入会话层。
+
+## 2026-11-15（周日）｜设备名称乱码修复
+
+### 问题
+
+Windows 上 `pcap_findalldevs` 返回的描述可能是 ANSI（中文系统为 GBK），也可能是 UTF-8；
+原实现统一 `decode("utf-8", errors="replace")`，编码不匹配时会产生 U+FFFD 或控制字符，
+在接口下拉框中显示为乱码；描述为空时也只显示设备路径，可读性差。
+
+### 修复
+
+- 新增 `decode_device_text`：UTF-8 → 带 BOM 的 UTF-16 → 系统首选编码 → `mbcs` →
+  GB18030/GBK 逐级回退；UTF-8 解码成功但内容不可信时直接判空，
+  避免继续用 GBK 兜底产生"锟斤拷"式二次乱码；
+- `_clean_text` 移除 U+FFFD、控制/格式/私用/未分配字符并压缩空白；
+- `_is_meaningful` 要求至少 30% 的可见字符为字母/数字/汉字，过滤纯符号乱码；
+- 描述不可用时使用统一默认名「网络设备 N」；
+- `Interface` 增加仅用于展示的 `display_name`，`label` 优先使用它；
+  `name`、`description` 的原有语义与 `choose_default` 的选择行为保持不变。
+
+### 验证
+
+- 新增 8 条单元测试：UTF-8、GBK、UTF-16 BOM、控制字符清理、纯乱码、空输入、
+  默认名回退、`display_name` 优先级；
+- 全量 **244 passed**，`ruff check .` 与 `ruff format --check .` 通过；
+- 本机 9 个设备的 label 均无 U+FFFD；描述正常时输出与修改前一致
+  （`Intel(R) Wi-Fi 6 AX201 160MHz` 等）。
