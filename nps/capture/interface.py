@@ -82,10 +82,12 @@ def decode_device_text(raw: bytes | None) -> str:
         cleaned = _clean_text(text)
         return cleaned if _is_meaningful(cleaned) else ""
 
-    candidates = [locale.getpreferredencoding(False)]
+    # 中文 Windows 的 Npcap 描述通常是 GBK；英文 Windows 的 cp1252 几乎能解码任意字节，
+    # 若先尝试 locale 会把 GBK 解成拉丁乱码，因此 GB18030/GBK 优先，locale/mbcs 兜底西文。
+    candidates = ["gb18030", "gbk"]
     if sys.platform == "win32":
         candidates.append("mbcs")
-    candidates.extend(("gb18030", "gbk"))
+    candidates.append(locale.getpreferredencoding(False))
 
     seen: set[str] = set()
     for encoding in candidates:
