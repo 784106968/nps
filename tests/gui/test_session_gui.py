@@ -112,13 +112,14 @@ def test_session_click_selects_in_dock(app) -> None:
         window.close()
 
 
-def test_double_click_jumps_to_first_packet(app) -> None:
+def test_double_click_jumps_to_payload_packet(app) -> None:
     window = MainWindow()
     try:
         window.feed_packets(handshake())
         window.select_row(5)
         window._on_session_activated(window.session_model.index(0, 0))
-        assert window.table.currentIndex().row() == 0
+        # 优先跳到第一个带载荷的包（row 3 的 HTTP 请求），而不是 SYN
+        assert window.table.currentIndex().row() == 3
     finally:
         window.close()
 
