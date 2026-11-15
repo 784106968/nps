@@ -49,7 +49,12 @@ def test_pseudo_device_does_not_support_promisc() -> None:
 
 def test_label_marks_loopback() -> None:
     device = Interface(name=r"\Device\NPF_Loopback", is_loopback=True)
-    assert "[回环]" in device.label
+    assert device.label == "回环抓包（Loopback）"
+
+
+def test_pseudo_device_label_is_readable() -> None:
+    device = Interface(name="any")
+    assert device.label == "任意接口（any）"
 
 
 def test_label_contains_description() -> None:
@@ -111,8 +116,22 @@ def test_label_uses_default_name_when_description_missing() -> None:
         name=r"\Device\NPF_{ABC}",
         display_name=default_device_name(2),
     )
-    assert "网络设备 2" in device.label
+    assert device.label == "网络设备 2"
     assert "\ufffd" not in device.label
+
+
+def test_label_never_exposes_device_path_or_braces() -> None:
+    device = Interface(
+        name=r"\Device\NPF_{D4BB9266-69A4-4599-AA7F-7194D4900179}",
+        description="Intel(R) Wi-Fi 6 AX201 160MHz",
+    )
+    assert device.label == "Intel(R) Wi-Fi 6 AX201 160MHz"
+    assert "\\Device" not in device.label
+    assert "{" not in device.label and "}" not in device.label
+
+
+def test_decode_removes_braced_code_fragments() -> None:
+    assert decode_device_text(b"USB Device {ABCD-1234}") == "USB Device"
 
 
 def test_label_prefers_display_name() -> None:
