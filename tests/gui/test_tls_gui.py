@@ -90,6 +90,30 @@ def test_detail_tree_shows_tls_under_tcp(app) -> None:
         window.close()
 
 
+def test_session_activation_selects_tls_packet(app) -> None:
+    window = MainWindow()
+    try:
+        empty = Packet(
+            index=2,
+            ts=1_700_000_000.1,
+            caplen=len(tcp_frame(b"")),
+            wirelen=len(tcp_frame(b"")),
+            linktype=1,
+            raw=memoryview(tcp_frame(b"")),
+        )
+        window.feed_packets([empty, make_packet()])
+        assert window.session_model.rowCount() == 1
+
+        # 双击会话默认选第一条包（无载荷），应改为选中带 TLS 握手的包
+        window._on_session_activated(window.session_model.index(0, 0))
+        tcp_item = find_tcp_item(window)
+        tls_item = find_item(tcp_item, "Transport Layer Security")
+        assert tls_item is not None
+        assert find_item(tls_item, "Host Name: example.com") is not None
+    finally:
+        window.close()
+
+
 def test_selecting_sni_highlights_bytes(app) -> None:
     window = MainWindow()
     try:
