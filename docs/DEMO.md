@@ -47,8 +47,8 @@
 
 ## 4. 详情树（1:40–2:20）
 
-**操作**：选中一条 TLS 包，展开 `Ethernet → IPv4 → TCP → TLS`。
-找到 `server_name`（SNI）字段。
+**操作**：选中一条 TLS 握手包（Info 里带 `Client Hello`），在详情树中展开
+`Ethernet → IPv4 → TCP → TLS`（TLS 在 TCP 节点下），找到 `Host Name`（SNI，有些资料写作 `server_name`）。
 
 **讲解**：
 
@@ -58,7 +58,7 @@
 
 ## 5. 十六进制联动（2:20–2:50）
 
-**操作**：在详情树点击 `server_name`，观察下方十六进制对应字节被高亮。
+**操作**：在详情树点击 `Host Name`，观察下方十六进制对应字节被高亮。
 
 **讲解**：
 
