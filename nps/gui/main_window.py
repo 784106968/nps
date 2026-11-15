@@ -61,6 +61,26 @@ QUEUE_CAPACITY = 100_000
 MODEL_CAPACITY = 200_000
 COLUMN_WIDTHS = (72, 120, 170, 170, 90, 70)
 
+
+def _nest_application_layers(layers: list[Field]) -> list[Field]:
+    """把 TLS 层挂到 TCP 下，形成"以太网 → IP → TCP → TLS"的展开路径。
+
+    Wireshark 将 TLS 显示为独立顶层协议；本应用面向教学，嵌套后更符合
+    逐层展开的阅读习惯。只复制 TCP 节点并复用原字段，不修改解析缓存。
+    """
+    tcp = next((layer for layer in layers if layer.name == "Transmission Control Protocol"), None)
+    tls_layers = [layer for layer in layers if layer.name == "Transport Layer Security"]
+    if tcp is None or not tls_layers:
+        return layers
+    merged = Field(tcp.name, tcp.value, tcp.offset, tcp.length)
+    merged.children = [*tcp.children, *tls_layers]
+    return [
+        merged if layer is tcp else layer
+        for layer in layers
+        if layer.name != "Transport Layer Security"
+    ]
+
+
 STYLE_SHEET = """
 QMainWindow { background: #f5f5f5; }
 QTableView, QTreeWidget {
@@ -457,7 +477,7 @@ class MainWindow(QMainWindow):
         decoded = self.packet_model.decoded_at(row)
         if packet is None or decoded is None:
             return
-        layers = list(decoded.layers)
+        layers = _nest_application_layers(list(decoded.layers))
         session = self.packet_model.session_for(packet)
         if session is not None and session.app_protocol:
             source = "DPI 识别" if session.confidence == "dpi" else "端口推断"
